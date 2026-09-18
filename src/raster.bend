@@ -585,8 +585,11 @@ def Frame.build(+d: Nat, +x: U32, +y: U32, +size: U32, +lx: F32, +ly: F32,
 # that happens here.
 # `gs` is the ground and `ws` is everything else, kept apart because the cull
 # treats them differently: the ground's back faces are dropped, the rest are
-# not (see Rt.Tri.faces).  The camera is built here, so it is here that the two
-# lists can finally be told apart.
+# not.  Culling the rest is what the demo does -- it enables `CULL_FACE` for
+# everything but the track -- but it is measured to be *worse* here (0.0021 ->
+# 0.0050 MAE against the reference), so the winding of the consist and the
+# instanced meshes is not the demo's and both of their faces have to be drawn
+# to land on the same picture.  See docs/journal.md.
 def Raster.frame(+d: Nat, +s: F32, +side: F32, +hgt: F32, +yaw: F32,
   +pitch: F32, +gs: List<&2, Geo.WTri>, +ws: List<&2, Geo.WTri>,
   +lts: Shade.Lights, +ss: List<&2, Rt.Spr>, +t: F32, +head_on: Bool) -> Frame:
@@ -608,8 +611,8 @@ def Raster.frame(+d: Nat, +s: F32, +side: F32, +hgt: F32, +yaw: F32,
 # rides its own worker (Rt.Tri.emit.chunks) instead of the serial soup walk.
 # `gcs` is the ground's four chunks and `cs` the rest, split the same way
 # Raster.frame splits its two lists, and for the same reason.
-def Raster.frame.chunks(+d: Nat, +s: F32, +side: F32, +hgt: F32, +yaw: F32,
-  +pitch: F32, +gcs: List<&2, List<&2, Geo.WTri>>,
+def Raster.frame.chunks(+d: Nat, +s: F32, +side: F32, +hgt: F32,
+  +yaw: F32, +pitch: F32, +gcs: List<&2, List<&2, Geo.WTri>>,
   cs: List<&2, List<&2, Geo.WTri>>, +lts: Shade.Lights, +ss: List<&2, Rt.Spr>,
   +t: F32, +head_on: Bool) -> Frame:
   +w = U32.shln(1, d)

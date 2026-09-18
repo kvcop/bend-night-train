@@ -13,6 +13,10 @@
 /.probe-*/
 /.scratch/
 
+# Probe programs build next to their source; only the source is kept.
+/probes/*/*
+!/probes/*/*.bend
+
 # Benchmark raw output (small, curated summaries live in docs/benchmarks.md)
 /bench/out/
 

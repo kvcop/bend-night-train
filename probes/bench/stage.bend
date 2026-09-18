@@ -132,8 +132,8 @@ def Main.frame.pick(chunked: Bool, +d: Nat, +s: F32, +side: F32, +hgt: F32,
   -> Raster.Frame:
   match chunked:
     case True{}:
-      Raster.Raster.frame.chunks(d, s, side, hgt, yaw, pitch, gcs, cs, lts, [], t,
-        head)
+      Raster.Raster.frame.chunks(d, s, side, hgt, yaw, pitch, gcs, cs, lts, [],
+        t, head)
     case False{}:
       Raster.Raster.frame(d, s, side, hgt, yaw, pitch, gs, ws, lts, [], t, head)
 
