@@ -216,30 +216,40 @@ def World.track(+s: F32, +acc: List<&2, Geo.WTri>) -> List<&2, Geo.WTri>:
   World.track.cell(420n, Lane.wire((0.0 - 0.14 : F32)), Lane.wire(0.14), s, a2)
 
 
-# The whole world as one soup: ground first, then the track on top of it.
-#
-# The eight pieces are independent -- four runs of 30 ground rows and the four
-# track lanes -- so the parallel let hands them to the worker threads as one
-# static split.  Each branch folds its own accumulator; the pieces come back as
-# a chunk list whose concatenation is byte-for-byte the serial soup: the track
-# lanes are ordered wire, rail-right, rail-left, bed because that is the order
-# the serial track fold prepends them, and the ground runs are ordered so their
+# The world's eight independent pieces as chunks: four track ribbons and four
+# runs of 30 ground rows.  The parallel let hands the pieces to the worker
+# threads as one static split, each branch folding its own accumulator, and the
+# chunk list's concatenation is byte-for-byte the serial soup: the track lanes
+# are ordered wire, rail-right, rail-left, bed because that is the order the
+# serial track fold prepends them, and the ground runs are ordered so their
 # ascending slices join into rows 0 .. 119.  Draw order is visible through
 # exact-depth ties, so reproducing it matters for the digest.  The serial
 # World.ground.row / World.track folds behind the single-accumulator entry
 # points are deliberately left alone.
+#
+# The four ribbons here are the part of the world the cull leaves alone; the
+# ground's four chunks come from World.ground.chunks, and the two lists are
+# kept apart because Raster.frame culls one and not the other.
 def World.chunks(+s: F32) -> List<&2, List<&2, Geo.WTri>>:
-  t0 t1 t2 t3 g0 g1 g2 g3 =
+  t0 t1 t2 t3 =
     World.track.cell(420n, Lane.wire((0.0 - 0.14 : F32)), Lane.wire(0.14), s, [])
     World.track.cell(420n, Lane.rail(0.65), Lane.rail(0.79), s, [])
     World.track.cell(420n, Lane.rail((0.0 - 0.79 : F32)),
       Lane.rail((0.0 - 0.65 : F32)), s, [])
     World.track.cell(420n, Lane.bed((0.0 - 4.6 : F32)), Lane.bed(4.6), s, [])
+  [t0, t1, t2, t3]
+
+
+# The ground in the same four runs, whose ascending slices join into rows
+# 0 .. 119.  It is a chunk list of its own so the chunked driver can cull it
+# without disturbing the track.
+def World.ground.chunks(+s: F32) -> List<&2, List<&2, Geo.WTri>>:
+  g0 g1 g2 g3 =
     World.ground.run(30n, 29n, s, [])
     World.ground.run(30n, 59n, s, [])
     World.ground.run(30n, 89n, s, [])
     World.ground.run(30n, 119n, s, [])
-  [t0, t1, t2, t3, g0, g1, g2, g3]
+  [g0, g1, g2, g3]
 
 
 def World.emit(+s: F32, +acc: List<&2, Geo.WTri>) -> List<&2, Geo.WTri>:

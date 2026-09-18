@@ -42,12 +42,11 @@ bench: build
 # Compare the two renderers at one frozen camera: the Bend frame, the original
 # WebGL demo rendered headlessly, and the numbers between them.
 #
-# The cameras are NOT identical yet -- the parity stream is still reconciling
-# the look-at point, the fov source and the head-turn defaults -- so today the
-# framing differs and side.png is for the eye, not for a threshold.  Override
-# the Bend environment with CAM= and the reference flags with REF=; keep
-# NT_DEPTH and SIZE in step, they are the same frame in pixels.
-CAM ?= NT_DEPTH=10 NT_S=110 NT_SIDE=4.6 NT_PPM=1
+# Both cameras are pinned: NT_YAW/NT_PITCH freeze the head, and --lean 1 is the
+# same ride lean the renderer computes at t=0.  Override the Bend environment
+# with CAM= and the reference flags with REF=; keep NT_DEPTH and SIZE in step,
+# they are the same frame in pixels.
+CAM ?= NT_DEPTH=10 NT_S=110 NT_SIDE=4.6 NT_PPM=1 NT_YAW=0.0 NT_PITCH=-0.02
 REF ?= --s 110 --lean 1 --yaw 0.0 --pitch -0.02
 SIZE ?= 1024
 CMP_DIR ?= out/compare
@@ -57,7 +56,7 @@ compare: build
 	python3 tools/ppm2png.py out/frame.ppm $(CMP_DIR)/bend.png
 	python3 tools/render_reference.py --out $(CMP_DIR)/reference.png --size $(SIZE) $(REF)
 	python3 tools/compare.py --bend $(CMP_DIR)/bend.png --ref $(CMP_DIR)/reference.png \
-	  --outdir $(CMP_DIR) --title "Bend | reference (framing not yet matched)"
+	  --outdir $(CMP_DIR) --title "Bend | reference (same camera)"
 
 clean:
 	rm -rf out

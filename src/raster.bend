@@ -20,6 +20,7 @@ import Base
 import ./color.bend as Color
 import ./geo.bend as Geo
 import ./rt.bend as Rt
+import ./ride.bend as Ride
 import ./shade.bend as Shade
 import ./trk.bend as Trk
 
@@ -66,21 +67,95 @@ def Nat.tile.levels(+d: Nat) -> Nat:
 
 # ---- filtering -------------------------------------------------------
 # A triangle survives a node only if its screen bounding box reaches into it.
-# The box is recomputed per level rather than carried along: a triangle only
-# ever reaches a handful of nodes, and six comparisons are cheaper than four
-# more fields on every projected vertex.
+# The box is a field of the projected triangle (Rt.Tri.boxed), so the test is
+# one record and four comparisons rather than a rebuild from three vertices.
+#
+# ---- and the two triangles the box cannot decide ---------------------
+# A box is a poor proxy for one shape only: the triangle the near plane cut.
+# Its surviving vertex sits at w = near, where the perspective divide sends the
+# screen coordinate to roughly 1e4, so a 3 m carriage wall becomes a box
+# 17,000 pixels wide.  Such a box reaches every node of the tree; at the frozen
+# camera 44 of them were in 62% of the leaf lists, and every pixel of those
+# leaves tested 44 triangles that covered none of them.  For a triangle whose
+# box is wide in absolute terms -- far wider than any tile -- the box test is
+# therefore followed by the triangle's own three edge functions at the node's
+# four corners: a node is dropped only when one edge's half-plane contains the
+# whole rectangle, which is conservative and cannot drop a covered pixel.
+#
+# The cost is three edge functions at four corners, and it is paid only by
+# triangles whose box is wider than Tri.wide() pixels -- a few dozen, whose
+# node count the same test then removes 99% of.
+def Tri.wide() -> F32:
+  64.0
+
+
+def Tri.e0(+ax: F32, +ay: F32, +bx: F32, +by: F32, +fx: F32, +fy: F32) -> F32:
+  ((bx - ax) * (fy - ay) - (by - ay) * (fx - ax) : F32)
+
+
+# The edge value scaled by the triangle's area sign, so that "inside" is
+# ">= 0" for every edge without a branch on the winding.
+def Tri.ec(+ax: F32, +ay: F32, +bx: F32, +by: F32, +fx: F32, +fy: F32,
+  +sum: F32) -> F32:
+  (Tri.e0(ax, ay, bx, by, fx, fy) * sum : F32)
+
+
+def Tri.max4(+a: F32, +b: F32, +c: F32, +d: F32) -> F32:
+  F32.max(F32.max(a, b), F32.max(c, d))
+
+
+# One edge: its largest scaled value over the node's rectangle.  The edge
+# function is affine, so the maximum over a rectangle is at a corner.
+def Tri.edge.mx(+ax: F32, +ay: F32, +bx: F32, +by: F32, +x0: F32, +y0: F32,
+  +x1: F32, +y1: F32, +sum: F32) -> F32:
+  Tri.max4(Tri.ec(ax, ay, bx, by, x0, y0, sum),
+    Tri.ec(ax, ay, bx, by, x1, y0, sum),
+    Tri.ec(ax, ay, bx, by, x0, y1, sum),
+    Tri.ec(ax, ay, bx, by, x1, y1, sum))
+
+
+# True when one of the triangle's three edges excludes the whole rectangle: the
+# edge's scaled value is negative at every corner, so its half-plane misses the
+# box and no pixel of the node can be inside the triangle.
+def Tri.keep.edges(+x0: F32, +y0: F32, +x1: F32, +y1: F32, +sx1: F32,
+  +sy1: F32, +sx2: F32, +sy2: F32, +sx3: F32, +sy3: F32) -> Bool:
+  +sum = (Tri.e0(sx1, sy1, sx2, sy2, x0, y0)
+    + Tri.e0(sx2, sy2, sx3, sy3, x0, y0)
+    + Tri.e0(sx3, sy3, sx1, sy1, x0, y0) : F32)
+  Bool.or(F32.is_lt(Tri.edge.mx(sx1, sy1, sx2, sy2, x0, y0, x1, y1, sum), 0.0),
+    Bool.or(F32.is_lt(Tri.edge.mx(sx2, sy2, sx3, sy3, x0, y0, x1, y1, sum), 0.0),
+      F32.is_lt(Tri.edge.mx(sx3, sy3, sx1, sy1, x0, y0, x1, y1, sum), 0.0)))
+
+
+def Tri.keep.narrow(wide: Bool, a: Rt.Vtx, b: Rt.Vtx, c: Rt.Vtx, +x0: F32,
+  +y0: F32, +x1: F32, +y1: F32) -> Bool:
+  match wide:
+    case False{}:
+      True{}
+    case True{}:
+      Rt.Vtx{at1, +sx1, +sy1, iw1} = a
+      Rt.Vtx{at2, +sx2, +sy2, iw2} = b
+      Rt.Vtx{at3, +sx3, +sy3, iw3} = c
+      Bool.not(Tri.keep.edges(x0, y0, x1, y1, sx1, sy1, sx2, sy2, sx3, sy3))
+
+
+def Tri.keep.box(over: Bool, wide: Bool, a: Rt.Vtx, b: Rt.Vtx, c: Rt.Vtx,
+  +x0: F32, +y0: F32, +x1: F32, +y1: F32) -> Bool:
+  match over:
+    case False{}:
+      False{}
+    case True{}:
+      Tri.keep.narrow(wide, a, b, c, x0, y0, x1, y1)
+
+
 def Tri.keep.at(t: Rt.Tri, +x0: F32, +y0: F32, +x1: F32, +y1: F32) -> Bool:
-  Rt.Tri{a, b, c} = t
-  Rt.Vtx{at1, +sx1, +sy1, iw1} = a
-  Rt.Vtx{at2, +sx2, +sy2, iw2} = b
-  Rt.Vtx{at3, +sx3, +sy3, iw3} = c
-  +bx0 = F32.min(sx1, F32.min(sx2, sx3))
-  +bx1 = F32.max(sx1, F32.max(sx2, sx3))
-  +by0 = F32.min(sy1, F32.min(sy2, sy3))
-  +by1 = F32.max(sy1, F32.max(sy2, sy3))
-  Bool.and(F32.is_gt(bx1, x0),
+  Rt.Tri{a, b, c, +bx0, +by0, +bx1, +by1} = t
+  +over = Bool.and(F32.is_gt(bx1, x0),
     Bool.and(F32.is_lt(bx0, x1),
       Bool.and(F32.is_gt(by1, y0), F32.is_lt(by0, y1))))
+  +wide = Bool.or(F32.is_gt(F32.sub(bx1, bx0), Tri.wide()),
+    F32.is_gt(F32.sub(by1, by0), Tri.wide()))
+  Tri.keep.box(over, wide, a, b, c, x0, y0, x1, y1)
 
 
 def Tri.keep1(yes: Bool, t: Rt.Tri, +acc: List<&2, Rt.Tri>)
@@ -240,42 +315,40 @@ def Tri.take.hit(h: Hit, +aiw: F32, +biw: F32, +ciw: F32, at1: Geo.WVtx,
       Tri.take.best(la, lb, lc, iw, aiw, biw, ciw, at1, at2, at3, best)
 
 
-def Tri.step.go(ok: Bool, +e0: F32, +e1: F32, +e2: F32, +sum: F32, +aiw: F32,
-  +biw: F32, +ciw: F32, at1: Geo.WVtx, at2: Geo.WVtx, at3: Geo.WVtx, best: Best)
-  -> Best:
+def Tri.step.box(ok: Bool, +fx: F32, +fy: F32, a: Rt.Vtx, b: Rt.Vtx,
+  c: Rt.Vtx, best: Best) -> Best:
   match ok:
     case False{}:
       best
     case True{}:
-      # `ok` is the bounding box: it only says the pixel is in the box the
-      # triangle's three corners span, which for a triangle seen edge-on -- the
-      # near carriage's wall, clipped at the near plane -- is a strip across the
-      # whole frame.  Without this second test every pixel of that box shades as
-      # if it were inside the triangle, with barycentric weights extrapolated
-      # far outside it.
-      Tri.take.hit(Tri.hit.go(Tri.inside(e0, e1, e2, sum), e0, e1, e2, sum, aiw,
-        biw, ciw), aiw, biw, ciw, at1, at2, at3, best)
+      Rt.Vtx{at1, +sx1, +sy1, +iw1} = a
+      Rt.Vtx{at2, +sx2, +sy2, +iw2} = b
+      Rt.Vtx{at3, +sx3, +sy3, +iw3} = c
+      +e0 = ((sx2 - sx1) * (fy - sy1) - (sy2 - sy1) * (fx - sx1) : F32)
+      +e1 = ((sx3 - sx2) * (fy - sy2) - (sy3 - sy2) * (fx - sx2) : F32)
+      +e2 = ((sx1 - sx3) * (fy - sy3) - (sy1 - sy3) * (fx - sx3) : F32)
+      +sum = ((sx2 - sx1) * (fy - sy1) - (sy2 - sy1) * (fx - sx1)
+        + (sx3 - sx2) * (fy - sy2) - (sy3 - sy2) * (fx - sx2)
+        + (sx1 - sx3) * (fy - sy3) - (sy1 - sy3) * (fx - sx3) : F32)
+      # The bounding box only says the pixel is in the box the triangle's three
+      # corners span, which for a triangle seen edge-on -- the near carriage's
+      # wall, clipped at the near plane -- is a strip across the whole frame.
+      # Without this second test every pixel of that box shades as if it were
+      # inside the triangle, with barycentric weights extrapolated far outside.
+      Tri.take.hit(Tri.hit.go(Tri.inside(e0, e1, e2, sum), e0, e1, e2, sum, iw1,
+        iw2, iw3), iw1, iw2, iw3, at1, at2, at3, best)
 
 
 # One triangle against one pixel.  The bounding box rejects most pixels of a
-# tile with four comparisons, which is the whole reason the tile keeps a list
-# instead of the pixel testing the world.
+# tile with four comparisons on the triangle's own fields -- which is the whole
+# reason the tile keeps a list instead of the pixel testing the world -- and
+# the vertices are read only by the pair that passes it.
 def Tri.step(+fx: F32, +fy: F32, t: Rt.Tri, best: Best) -> Best:
-  Rt.Tri{a, b, c} = t
-  Rt.Vtx{at1, +sx1, +sy1, +iw1} = a
-  Rt.Vtx{at2, +sx2, +sy2, +iw2} = b
-  Rt.Vtx{at3, +sx3, +sy3, +iw3} = c
-  Tri.step.go(Bool.and(F32.is_ge(fx, F32.min(sx1, F32.min(sx2, sx3))),
-    Bool.and(F32.is_le(fx, F32.max(sx1, F32.max(sx2, sx3))),
-      Bool.and(F32.is_ge(fy, F32.min(sy1, F32.min(sy2, sy3))),
-        F32.is_le(fy, F32.max(sy1, F32.max(sy2, sy3)))))),
-    ((sx2 - sx1) * (fy - sy1) - (sy2 - sy1) * (fx - sx1) : F32),
-    ((sx3 - sx2) * (fy - sy2) - (sy3 - sy2) * (fx - sx2) : F32),
-    ((sx1 - sx3) * (fy - sy3) - (sy1 - sy3) * (fx - sx3) : F32),
-    (((sx2 - sx1) * (fy - sy1) - (sy2 - sy1) * (fx - sx1)
-      + (sx3 - sx2) * (fy - sy2) - (sy3 - sy2) * (fx - sx2)
-      + (sx1 - sx3) * (fy - sy3) - (sy1 - sy3) * (fx - sx3) : F32)),
-    iw1, iw2, iw3, at1, at2, at3, best)
+  Rt.Tri{a, b, c, +bx0, +by0, +bx1, +by1} = t
+  Tri.step.box(Bool.and(F32.is_ge(fx, bx0),
+    Bool.and(F32.is_le(fx, bx1),
+      Bool.and(F32.is_ge(fy, by0), F32.is_le(fy, by1)))),
+    fx, fy, a, b, c, best)
 
 
 def Tri.best(ts: List<&2, Rt.Tri>, +fx: F32, +fy: F32, best: Best) -> Best:
@@ -428,35 +501,37 @@ def Frame.tile(+x: U32, +y: U32, +tris: List<&2, Rt.Tri>,
 
 
 # ---- the quadtree ----------------------------------------------------
-def Frame.build(+d: Nat, +x: U32, +y: U32, +size: U32, +tris: List<&2, Rt.Tri>,
-  +ss: List<&2, Rt.Spr>, +env: Env) -> Frame:
+# One node of the tree.  `x`, `y`, `size` are the node's pixel square; the four
+# floats are the same square in screen coordinates, and they are what the
+# filter tests, so a node is handed a list already pruned to it and prunes it
+# again to each of its four children.
+#
+# Where the filter sits is not cosmetic.  Read the other way -- each branch of
+# the fork called with `keep(parent_list, child_box)`, the filter in the
+# argument position, which is the obvious way to write it -- the whole tree's
+# filtering nests inside the level above it: `keep(keep(keep(keep ...)))`, and
+# a fork's arguments belong to the caller.  A branch that filters its own list
+# is a branch that owns that work.
+def Frame.build(+d: Nat, +x: U32, +y: U32, +size: U32, +lx: F32, +ly: F32,
+  +rx: F32, +ry: F32, +tris: List<&2, Rt.Tri>, +ss: List<&2, Rt.Spr>,
+  +env: Env) -> Frame:
   match d:
     case 0n:
-      Frame.tile(x, y, tris, ss, env)
+      +ft = Tri.keep(tris, lx, ly, rx, ry, [])
+      +fs = Spr.keep(ss, lx, ly, rx, ry, [])
+      Frame.tile(x, y, ft, fs, env)
     case 1n+k:
+      +ft = Tri.keep(tris, lx, ly, rx, ry, [])
+      +fs = Spr.keep(ss, lx, ly, rx, ry, [])
       +h = U32.shrn(size, 1n)
       +x1 = U32.add(x, h)
       +y1 = U32.add(y, h)
-      +x2 = U32.add(x, size)
-      +y2 = U32.add(y, size)
-      +lx = U32.to_f32(x)
-      +ly = U32.to_f32(y)
       +mx = U32.to_f32(x1)
       +my = U32.to_f32(y1)
-      +rx = U32.to_f32(x2)
-      +ry = U32.to_f32(y2)
-      a b c f = Frame.build(k, x, y, h,
-          Tri.keep(tris, lx, ly, mx, my, []),
-          Spr.keep(ss, lx, ly, mx, my, []), env)
-        Frame.build(k, x1, y, h,
-          Tri.keep(tris, mx, ly, rx, my, []),
-          Spr.keep(ss, mx, ly, rx, my, []), env)
-        Frame.build(k, x, y1, h,
-          Tri.keep(tris, lx, my, mx, ry, []),
-          Spr.keep(ss, lx, my, mx, ry, []), env)
-        Frame.build(k, x1, y1, h,
-          Tri.keep(tris, mx, my, rx, ry, []),
-          Spr.keep(ss, mx, my, rx, ry, []), env)
+      a b c f = Frame.build(k, x, y, h, lx, ly, mx, my, ft, fs, env)
+        Frame.build(k, x1, y, h, mx, ly, rx, my, ft, fs, env)
+        Frame.build(k, x, y1, h, lx, my, mx, ry, ft, fs, env)
+        Frame.build(k, x1, y1, h, mx, my, rx, ry, ft, fs, env)
       Quad{a, b, c, f}
 
 
@@ -464,30 +539,45 @@ def Frame.build(+d: Nat, +x: U32, +y: U32, +size: U32, +tris: List<&2, Rt.Tri>,
 # `d` is the frame's depth, so the frame is 2^d pixels square.  The geometry
 # arrives already in world space for this `s`; projecting it is the first thing
 # that happens here.
+# `gs` is the ground and `ws` is everything else, kept apart because the cull
+# treats them differently: the ground's back faces are dropped, the rest are
+# not (see Rt.Tri.faces).  The camera is built here, so it is here that the two
+# lists can finally be told apart.
 def Raster.frame(+d: Nat, +s: F32, +side: F32, +hgt: F32, +yaw: F32,
-  +pitch: F32, +ws: List<&2, Geo.WTri>, +lts: Shade.Lights,
-  +ss: List<&2, Rt.Spr>, +t: F32, +head_on: Bool) -> Frame:
+  +pitch: F32, +gs: List<&2, Geo.WTri>, +ws: List<&2, Geo.WTri>,
+  +lts: Shade.Lights, +ss: List<&2, Rt.Spr>, +t: F32, +head_on: Bool) -> Frame:
   +w = U32.shln(1, d)
   +cam = Rt.VCam.ride(w, w, s, side, hgt, yaw, pitch)
-  +tris = Rt.Tri.emit(ws, cam)
-  +sprs = List.append(&2, Rt.Spr, Shade.Stars.list(cam, t), ss)
-  Frame.build(Nat.tile.levels(d), 0, 0, w, tris, sprs,
-    Env{cam, lts, head_on, t})
+  +tris = List.append(&2, Rt.Tri, Rt.Tri.emit(Rt.Tri.cull(gs, cam, []), cam),
+    Rt.Tri.emit(ws, cam))
+  # the glow layer needs where the ride began, not only where it is now: the
+  # smoke's first puffs were born there.  The camera moves at the demo's own
+  # speed, so the origin is t seconds back along the line.
+  +sprs = List.append(&2, Rt.Spr,
+    Ride.Ride.glows(cam, s, (s - Ride.Ride.speed() * t : F32), head_on, t),
+    List.append(&2, Rt.Spr, Shade.Stars.list(cam, t), ss))
+  Frame.build(Nat.tile.levels(d), 0, 0, w, 0.0, 0.0, U32.to_f32(w),
+    U32.to_f32(w), tris, sprs, Env{cam, lts, head_on, t})
 
 
 # The same frame, but the geometry stays chunked: the projection of each piece
 # rides its own worker (Rt.Tri.emit.chunks) instead of the serial soup walk.
-# Raster.frame is left as it was; this is the entry point the chunked driver
-# calls, and it produces the identical Frame.
+# `gcs` is the ground's four chunks and `cs` the rest, split the same way
+# Raster.frame splits its two lists, and for the same reason.
 def Raster.frame.chunks(+d: Nat, +s: F32, +side: F32, +hgt: F32, +yaw: F32,
-  +pitch: F32, cs: List<&2, List<&2, Geo.WTri>>, +lts: Shade.Lights,
-  +ss: List<&2, Rt.Spr>, +t: F32, +head_on: Bool) -> Frame:
+  +pitch: F32, +gcs: List<&2, List<&2, Geo.WTri>>,
+  cs: List<&2, List<&2, Geo.WTri>>, +lts: Shade.Lights, +ss: List<&2, Rt.Spr>,
+  +t: F32, +head_on: Bool) -> Frame:
   +w = U32.shln(1, d)
   +cam = Rt.VCam.ride(w, w, s, side, hgt, yaw, pitch)
-  +tris = Rt.Tri.emit.chunks(cs, cam)
-  +sprs = List.append(&2, Rt.Spr, Shade.Stars.list(cam, t), ss)
-  Frame.build(Nat.tile.levels(d), 0, 0, w, tris, sprs,
-    Env{cam, lts, head_on, t})
+  +tris = List.append(&2, Rt.Tri,
+    Rt.Tri.emit.chunks(Rt.Tri.cull.chunks(gcs, cam, []), cam),
+    Rt.Tri.emit.chunks(cs, cam))
+  +sprs = List.append(&2, Rt.Spr,
+    Ride.Ride.glows(cam, s, (s - Ride.Ride.speed() * t : F32), head_on, t),
+    List.append(&2, Rt.Spr, Shade.Stars.list(cam, t), ss))
+  Frame.build(Nat.tile.levels(d), 0, 0, w, 0.0, 0.0, U32.to_f32(w),
+    U32.to_f32(w), tris, sprs, Env{cam, lts, head_on, t})
 
 
 # ---- reading the frame back ------------------------------------------

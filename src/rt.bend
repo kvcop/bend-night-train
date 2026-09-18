@@ -31,7 +31,7 @@ type Vtx is Data:
 
 
 type Tri is Data:
-  Tri{a: Vtx, b: Vtx, c: Vtx}
+  Tri{a: Vtx, b: Vtx, c: Vtx, bx0: F32, by0: F32, bx1: F32, by1: F32}
 
 
 # A shaded fragment: the same attributes, interpolated at a pixel.
@@ -213,8 +213,98 @@ def VCam.to(+cam: VCam, c: Cv) -> Vtx:
   Vtx{at, (hw + k * xv * iw : F32), (hh - k * yv * iw : F32), iw}
 
 
+# The screen bounding box of a projected triangle, computed once, at
+# projection, and carried on the triangle.
+#
+# Both readers of it are hot: the quadtree's filter tests every triangle at
+# every node it reaches, and the pixel's reject tests it once per pixel of the
+# tile.  Rebuilt from the three Vtx records, that is three heap reads and six
+# min/max per test; read off the triangle it is one record and four compares.
+# Only the pair that passes the box ever needs the vertices.
+def Tri.boxed(+a: Vtx, +b: Vtx, +c: Vtx) -> Tri:
+  Vtx{at1, +sx1, +sy1, +iw1} = a
+  Vtx{at2, +sx2, +sy2, +iw2} = b
+  Vtx{at3, +sx3, +sy3, +iw3} = c
+  Tri{Vtx{at1, sx1, sy1, iw1}, Vtx{at2, sx2, sy2, iw2}, Vtx{at3, sx3, sy3, iw3},
+    F32.min(sx1, F32.min(sx2, sx3)), F32.min(sy1, F32.min(sy2, sy3)),
+    F32.max(sx1, F32.max(sx2, sx3)), F32.max(sy1, F32.max(sy2, sy3))}
+
+
+# Back-face culling, WebGL's own rule, taken in world space: a triangle faces
+# the eye when its winding normal, cross(b - a, c - a), points back along
+# eye - a.  The projected signed area has the same sign, so this is the test
+# the device would make, one step earlier -- once per triangle, before the
+# tree ever filters it, and without projecting what is about to be thrown away.
+#
+# It is not an optimisation here, it is half the picture.  The reference's
+# ground is a sheet wound face-down, so WebGL drops it and the demo's lower
+# half is the sky's below-horizon haze rather than grass.  Drawing that ground
+# is what the rasteriser did before this test, and it is the largest single
+# disagreement the two renderers had.
+#
+# The track ribbon is the one mesh the demo draws with `gl.disable(CULL_FACE)`,
+# so it is the one mesh that does not come through here -- both of its faces are
+# drawn, exactly as the device draws them.
+def Tri.faces(t: Geo.WTri, +ex: F32, +ey: F32, +ez: F32) -> Bool:
+  Geo.WTri{a, b, c} = t
+  Geo.WVtx{+ax, +ay, +az, anx, any, anz, acr, acg, acb, ae} = a
+  Geo.WVtx{+bx, +by, +bz, bnx, bny, bnz, bcr, bcg, bcb, be} = b
+  Geo.WVtx{+cx, +cy, +cz, cnx, cny, cnz, ccr, ccg, ccb, ce} = c
+  +ux = (bx - ax : F32)
+  +uy = (by - ay : F32)
+  +uz = (bz - az : F32)
+  +vx = (cx - ax : F32)
+  +vy = (cy - ay : F32)
+  +vz = (cz - az : F32)
+  +nx = (uy * vz - uz * vy : F32)
+  +ny = (uz * vx - ux * vz : F32)
+  +nz = (ux * vy - uy * vx : F32)
+  F32.is_gt((nx * (ex - ax) + ny * (ey - ay) + nz * (ez - az) : F32), 0.0)
+
+
+def Tri.cull.one(faces: Bool, t: Geo.WTri, +acc: List<&2, Geo.WTri>)
+  -> List<&2, Geo.WTri>:
+  match faces:
+    case True{}:
+      t <> acc
+    case False{}:
+      acc
+
+
+def Tri.cull.go(ws: List<&2, Geo.WTri>, +ex: F32, +ey: F32, +ez: F32,
+  +acc: List<&2, Geo.WTri>) -> List<&2, Geo.WTri>:
+  match ws:
+    case []:
+      acc
+    case +t <> rest:
+      Tri.cull.go(rest, ex, ey, ez,
+        Tri.cull.one(Tri.faces(t, ex, ey, ez), t, acc))
+
+
+def Tri.cull(ws: List<&2, Geo.WTri>, +cam: VCam,
+  +acc: List<&2, Geo.WTri>) -> List<&2, Geo.WTri>:
+  VCam{ex, ey, ez, rx, ry, rz, ux, uy, uz, fx, fy, fz, k, hw, hh} = cam
+  Tri.cull.go(ws, ex, ey, ez, acc)
+
+
+# The same cull over a chunk list: each chunk is filtered on its own, and the
+# chunks keep their order -- the projected list has to stay the serial one, or
+# exact-depth ties would resolve differently.
+def Tri.cull.chunks(cs: List<&2, List<&2, Geo.WTri>>, +cam: VCam,
+  +acc: List<&2, List<&2, Geo.WTri>>) -> List<&2, List<&2, Geo.WTri>>:
+  match cs:
+    case []:
+      acc
+    case c <> rest:
+      Tri.cull.chunks(rest, cam,
+        List.append(&2, List<&2, Geo.WTri>, acc, [Tri.cull(c, cam, [])]))
+
+
 def Tri.one(+cam: VCam, a: Cv, b: Cv, c: Cv) -> List<&2, Tri>:
-  [Tri{VCam.to(cam, a), VCam.to(cam, b), VCam.to(cam, c)}]
+  +va = VCam.to(cam, a)
+  +vb = VCam.to(cam, b)
+  +vc = VCam.to(cam, c)
+  [Tri.boxed(va, vb, vc)]
 
 
 # One vertex outside: cut the two edges that leave it, keep the corner.  Two

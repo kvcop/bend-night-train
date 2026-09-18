@@ -163,14 +163,84 @@ def Main.save.maybe(write: Bool, +d: Nat, +fr: Raster.Frame, path: String)
 
 
 # ---- the scene -------------------------------------------------------
-# The three meshes the reference draws as instanced or per-vertex geometry.
-# The consist is built once, not once per car: `cars()` rebuilds the four
-# carriage meshes every call.
+# The world comes back in two soups, and the split is the reference's own: its
+# ground is a sheet wound face-down, so WebGL culls it and the demo's lower
+# half is the sky's haze rather than grass.  The rasteriser culls it too, which
+# it can only do where the camera is known -- so the ground travels on its own
+# until Raster.frame.  The track is not in it: the demo draws the track with
+# culling disabled, so both of its faces are wanted.
+def Main.ground(+s: F32) -> List<&2, Geo.WTri>:
+  World.World.ground(s, [])
+
+
+# The rest of the world: the track on top of the ballast, the instanced
+# scenery, then the consist.  The consist is built once, not once per car:
+# `cars()` rebuilds the four carriage meshes every call.
 def Main.tris(+s: F32) -> List<&2, Geo.WTri>:
   +cars = Carriage.Carriage.cars()
-  List.append(&2, Geo.WTri,
-    List.append(&2, Geo.WTri, World.World.emit(s, []), Inst.Inst.emit(s, [])),
-    Carriage.Carriage.all(s, cars, []))
+  a b c = World.World.track(s, []) Inst.Inst.emit(s, [])
+    Carriage.Carriage.all(s, cars, [])
+  List.append(&2, Geo.WTri, List.append(&2, Geo.WTri, a, b), c)
+
+
+# ---- the live view ---------------------------------------------------
+# The demo's own ride, one frame per call, written to stdout as a P3 PPM with
+# no separator between frames.  That is the stream ffplay's image2pipe demuxer
+# reads, so the renderer can be watched while it runs:
+#
+#   NT_MS=0 NT_FRAMES=300 NT_STEP=33 ./out/night-train --threads 24 \
+#     | ffplay -f image2pipe -framerate 30 -i -
+#
+# The frame's time is given in milliseconds and `s` advances at the reference's
+# own 24.5 m/s (its "Обычная" speed), so a driver that feeds the wall clock
+# gets the train at its real speed and a driver that feeds a fixed step gets a
+# clip that plays back at that step.  tools/live.sh does the first and
+# tools/clip.sh the second.
+def View.frame.at(+ms: U32, +d: Nat, +s0: F32, +head: Bool) -> Raster.Frame:
+  +t = (U32.to_f32(ms) * 0.001 : F32)
+  +s = (s0 + 24.5 * t : F32)
+  Raster.Raster.frame(d, s, Ride.Ride.side(t, True{}), Ride.Ride.hgt(t, True{}),
+    Ride.Ride.yaw(s, t, True{}), Ride.Ride.pitch(t, True{}), Main.ground(s),
+    Main.tris(s), Ride.Ride.lights(s), [], t, head)
+
+
+# One frame's rows, top row first: the tree's `y` grows downward from the top
+# of the screen, so row y is (width - 1) - k.
+def View.rows(+i: Nat, +d: Nat, +w: U32, +fr: Raster.Frame) -> IO(Unit):
+  match i:
+    case 0n:
+      IO.pure(Unit, Unit{})
+    case 1n+k:
+      do IO<Unit>:
+        IO.write(Raster.Raster.text.row(d, fr,
+          U32.sub(U32.sub(w, 1), U32.from_nat(k))))
+        View.rows(k, d, w, fr)
+
+
+def View.go(+i: Nat, +ms: U32, +step: U32, +d: Nat, +s0: F32, +head: Bool)
+  -> IO(Unit):
+  match i:
+    case 0n:
+      IO.pure(Unit, Unit{})
+    case 1n+k:
+      do IO<Unit>:
+        +w : U32 = U32.shln(1, d)
+        +fr : Raster.Frame = View.frame.at(ms, d, s0, head)
+        IO.write("P3\n" ++ U32.show(w) ++ " " ++ U32.show(w) ++ "\n255\n")
+        View.rows(U32.to_nat(w), d, w, fr)
+        View.go(k, U32.add(ms, step), step, d, s0, head)
+
+
+def View.run() -> IO(Unit):
+  do IO<Unit>:
+    depth : U32 <- Main.env.u32("NT_DEPTH", 9)
+    frames : U32 <- Main.env.u32("NT_FRAMES", 60)
+    first : U32 <- Main.env.u32("NT_MS", 0)
+    step : U32 <- Main.env.u32("NT_STEP", 33)
+    s0 : F32 <- Main.env.f32("NT_S", 110.0)
+    head : U32 <- Main.env.u32("NT_HEAD", 1)
+    View.go(U32.to_nat(frames), first, step, U32.to_nat(depth), s0,
+      U32.is_eq(head, 1))
 
 
 # ---- driver ----------------------------------------------------------
@@ -195,14 +265,25 @@ def Main.frame(+path: String) -> IO(Unit):
     # the yaw and the converged pitch (0.012) is used.
     +yaw : F32 = Main.f32.or.else(yaw0, Ride.Ride.yaw(s, t, mo))
     +pitch : F32 = Main.f32.or.else(pitch0, Ride.Ride.pitch(t, mo))
+    +gs : List<&2, Geo.WTri> = Main.ground(s)
     +ws : List<&2, Geo.WTri> = Main.tris(s)
     +lts : Shade.Lights = Ride.Ride.lights(s)
     +fr : Raster.Frame = Raster.Raster.frame(d, s, side, Ride.Ride.hgt(t, mo),
       yaw,
-      pitch, ws, lts, [], t, U32.is_eq(head, 1))
+      pitch, gs, ws, lts, [], t, U32.is_eq(head, 1))
     IO.print(U32.show(Raster.Raster.digest(d, fr)) ++ "\n")
     Main.save.maybe(U32.is_eq(ppm, 1), d, fr, path)
 
 
+def Main.pick.view(view: Bool, path: String) -> IO(Unit):
+  match view:
+    case True{}:
+      View.run()
+    case False{}:
+      Main.frame(path)
+
+
 def main() -> IO(Unit):
-  Main.frame("out/frame.ppm")
+  do IO<Unit>:
+    view : U32 <- Main.env.u32("NT_VIEW", 0)
+    Main.pick.view(U32.is_eq(view, 1), "out/frame.ppm")
