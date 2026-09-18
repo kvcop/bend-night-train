@@ -55,7 +55,7 @@ def Which.run() -> IO(Unit):
     +ws : List<&2, Geo.WTri> = Which.scene(stg, cars, s)
     +lts : Shade.Lights = Ride.Ride.lights(s)
     +fr : Raster.Frame = Raster.Raster.frame(d, s, Ride.Ride.side(t, mo),
-      Ride.Ride.hgt(t, mo), 0.0, (0.0 - 0.02 : F32), ws, lts, [], t, True{})
+      Ride.Ride.hgt(t, mo), 0.0, (0.0 - 0.02 : F32), [], ws, lts, [], t, True{})
     IO.print(U32.show(Raster.Raster.digest(d, fr)) ++ "\n")
     M.Main.save.maybe(True{}, d, fr, "out/probe.ppm")
 

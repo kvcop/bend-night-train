@@ -1,9 +1,9 @@
-# Scratch harness for Glow.list: builds the ride camera from the demo's own
+# Scratch harness for Ride.glows: builds the ride camera from the demo's own
 # 1024x1024 settings, asks for one frame of glow sprites at s=110, t=0 with the
 # headlight on, and prints the count and the first three sprites' cx, cy, r, a.
 # Run with: tools/bend probes/raster/glow_test.bend
 import Base
-import ../../src/glow.bend as Glow
+import ../../src/ride.bend as Ride
 import ../../src/rt.bend as Rt
 
 
@@ -40,7 +40,7 @@ def main() -> IO(Unit):
   do IO<Unit>:
     +cam : Rt.VCam = Rt.VCam.ride(1024, 1024, 110.0, 4.6, 3.05, 0.0,
       (0.0 - 0.02 : F32))
-    +gs : List<&2, Rt.Spr> = Glow.Glow.list(cam, 110.0, 0.0, True{})
+    +gs : List<&2, Rt.Spr> = Ride.Ride.glows(cam, 110.0, 110.0, True{}, 0.0)
     IO.print("count " ++ Nat.show(List.length(&2, Rt.Spr, gs)))
     IO.print("on-screen " ++ Nat.show(Main.on(gs, 0n)))
     IO.print(Main.show3(List.take(&2, Rt.Spr, gs, 3n), ""))

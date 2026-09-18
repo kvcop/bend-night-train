@@ -51,7 +51,7 @@ def Win.go(ts: List<&2, Rt.Tri>, +w: Win, +fx: F32, +fy: F32) -> Win:
     case []:
       w
     case t <> rest:
-      Rt.Tri{a, b, c} = t
+      Rt.Tri{a, b, c, bx0, by0, bx1, by1} = t
       Rt.Vtx{at1, +ax, +ay, aiw} = a
       Rt.Vtx{at2, +bx, +by, biw} = b
       Rt.Vtx{at3, +cx, +cy, ciw} = c
