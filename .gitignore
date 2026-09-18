@@ -13,10 +13,9 @@
 # Benchmark raw output (small, curated summaries live in docs/benchmarks.md)
 /bench/out/
 
-# Rendered frames are large; keep only what docs/ links to explicitly
+# Rendered frames: the PPM intermediates are large and regenerable, the
+# PNGs under assets/frames/ are the published artifacts and are kept.
 /assets/frames/*.ppm
-/assets/frames/*.png
-!assets/frames/.gitkeep
 
 # Editor / OS
 .DS_Store
