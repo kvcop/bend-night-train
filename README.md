@@ -1,58 +1,66 @@
+*English | [Русский](README.ru.md)*
+
 # bend-night-train
 
-**Ночной поезд на Bend 2** — исследовательский проект о языке
-[Bend 2](https://bend-lang.com/): аффинные зависимые типы, законы и
-доказательства, автоматический параллелизм на CPU и GPU.
+**The Night Train on Bend 2** — a research project about the
+[Bend 2](https://bend-lang.com/) language: affine dependent types, laws and
+proofs, automatic parallelism on CPU and GPU.
 
-Материал — самостоятельная WebGL-демка «Ночной поезд — из окна»: процедурный
-путь из двух синусоид, состав из пятнадцати вагонов, ночной лес, звёзды,
-туман, свет из окон. Она лежит в `reference/` и не меняется. Мы переписали её
-на Bend 2 не ради картинки, а чтобы руками проверить, на что язык способен —
-и записать это.
+The material is a self-contained WebGL demo, «Ночной поезд — из окна» (Night
+train — from the window): a procedural track from two sine waves, a consist of
+fifteen carriages, a night forest, stars, fog, light from the windows. It lives
+in `reference/` and does not change. We rewrote it in Bend 2 not for the picture,
+but to test by hand what the language is capable of — and to write that down.
 
-![Ночной поезд](assets/frames/night-train-s150.png)
+![Night train](assets/frames/night-train-s150.png)
 
-## Главные результаты
+## Headline results
 
-**1. Параллелизм упирается в потолок задолго до числа ядер.**
-Рендер кадра 1024×1024 на 32 ядрах ускоряется в **2.7×**, а суммарное
-процессорное время при этом растёт в **8.2×**. На 32 потоках работа идёт
-медленнее, чем на 8. Причина — неровная нагрузка: лучи трассируются за разное
-число шагов, а планировщик не паркует простаивающие ядра, а крутит их.
-Подробности и все числа: `docs/benchmarks.md`.
+**1. Parallelism hits a ceiling long before the number of cores.**
+Rendering a 1024×1024 frame on 32 cores speeds up by **2.7×**, while the total
+CPU time grows by **8.2×**. At 32 threads the work goes slower than at 8. The
+reason is uneven load: rays are traced in different numbers of steps, and the
+scheduler does not park idle cores but spins them. Details and all the numbers:
+`docs/benchmarks.md`. (These are CPU-lane numbers; the GPU-enabled
+re-measurement is pending — see `docs/benchmarks.md`.)
 
-**2. Доказуемо не то, что кажется.**
-Ворота законов (`bend PROOF.bend`) проходят, но доказывают **структуру**:
-полноту четырёхдорожечного параллельного сплита, число вагонов, число лучей.
-Числа недоказуемы в принципе: все операции над `F32` объявлены как `law` без
-тела, поэтому цвет пикселя, положение камеры и «кадр не зависит от числа
-потоков» нельзя даже сформулировать как закон. Разбор с дословными ошибками:
-`docs/laws.md`.
+**2. What is provable is not what it seems.**
+The laws gate (`bend PROOF.bend`) passes, but proves **structure**: completeness
+of the four-way parallel split, the number of carriages, the number of rays. The
+numbers are unprovable in principle: all operations on `F32` are declared as
+`law` without a body, so a pixel's colour, the camera position and "the frame
+does not depend on the number of threads" cannot even be stated as a law.
+Analysis with verbatim errors: `docs/laws.md`.
 
-**3. `!` на машине без GPU бесплатен и бесполезен.**
-Один и тот же код с `!` и без него даёт одинаковое время и одинаковый
-контрольный код. Детерминизм проверен: 108 прогонов, три глубины, шесть
-значений `--threads`, два варианта вызова — один и тот же результат.
+**3. `!` runs on the device, not on the CPU.**
+On this host `!` is not a CPU fallback: the machine has an **RTX 4090 Laptop**
+(driver 580.178.04, CUDA 13.0), `tools/bend` sets `CUDA_HOME=/usr` for the
+distro CUDA 12 toolkit, `make build` emits `out/night-train.gpu`, and the `!`
+call runs on the device even without `--gpu`; `--gpu 4GB` only bounds device
+memory. The true CPU baseline is `NT_BANG=0`. CPU and device agree except for
+last-bit F32 rounding (≤4/255 on about 0.15% of pixels), so their checksums may
+differ. Determinism is measured: 108 runs, three depths, six values of
+`--threads`, two call variants — one and the same result.
 
-**4. Язык проверяет многое, но требует знать правила заранее.**
-Список из тринадцати реально пойманных ошибок — в `docs/journal.md`;
-систематический справочник, собранный отдельным исследованием, — в
-`docs/language-notes.md` (1170 строк). Самое непривычное: взаимная рекурсия
-запрещена, порядок объявлений — часть программы, `match` — не выражение,
-а деструктурировать можно только параметр.
+**4. The language checks a lot, but requires knowing the rules in advance.**
+The list of thirteen errors actually caught is in `docs/journal.md`; the
+systematic reference, assembled by a separate investigation, is in
+`docs/language-notes.md` (1170 lines). The most unusual: mutual recursion is
+forbidden, declaration order is part of the program, `match` is not an
+expression, and only a parameter can be destructured.
 
-## Быстрый старт
+## Quick start
 
 ```sh
-make proof                  # ворота законов: должно быть "All terms check."
-make build                  # нативный бинарник через clang
-make frame                  # кадр 512x512 в out/frame.png
-make bench                  # 108 прогонов, bench/results.csv
+make proof                  # laws gate: must be "All terms check."
+make build                  # native binary via clang
+make frame                  # 512x512 frame to out/frame.png
+make bench                  # 108 runs, bench/results.csv
 
-./tools/bend src/main.bend   # проверка и запуск на JS-бэкенде
+./tools/bend src/main.bend   # check and run on the JS backend
 ```
 
-Полезные переменные окружения — у готового бинарника:
+Useful environment variables — for the finished binary:
 
 ```sh
 NT_DEPTH=10 NT_S=150 NT_SIDE=4.6 NT_PPM=0 ./out/night-train --threads 8
@@ -60,44 +68,44 @@ NT_DEPTH=10 NT_S=150 NT_SIDE=4.6 NT_PPM=0 ./out/night-train --threads 8
 
 | | |
 |---|---|
-| `NT_DEPTH` | глубина квадродерева; кадр `2^d × 2^d` |
-| `NT_S` | положение вдоль пути, метры |
-| `NT_SIDE` | боковое смещение камеры от оси пути |
-| `NT_PPM` | `1` — записать `out/frame.ppm`, `0` — только посчитать |
-| `NT_BANG` | `1` — рендерить через `!`, `0` — обычным параллельным вызовом |
+| `NT_DEPTH` | quadtree depth; frame `2^d × 2^d` |
+| `NT_S` | position along the track, metres |
+| `NT_SIDE` | camera's lateral offset from the track axis |
+| `NT_PPM` | `1` — write `out/frame.ppm`, `0` — only compute |
+| `NT_BANG` | `1` — render via `!`, `0` — with an ordinary parallel call |
 
-`tools/bend` — обёртка: в этой среде `$HOME` только для чтения, и голый
-`bend` не может писать в `~/.bend`.
+`tools/bend` is a wrapper: in this environment `$HOME` is read-only, and a bare
+`bend` cannot write to `~/.bend`.
 
-Обёртка ещё и **запрещает `--publish`**. Хаб Bend — контент-адресное
-хранилище без аккаунтов и без удаления: опубликованный пакет остаётся
-публичным навсегда. Снять запрет может только человек, выставив
-`BEND_ALLOW_PUBLISH=1`; агент этого не делает.
+The wrapper also **forbids `--publish`**. Bend's hub is a content-addressed store
+with no accounts and no deletion: a published package stays public forever. Only
+a human can lift the ban, by setting `BEND_ALLOW_PUBLISH=1`; an agent does not
+do this.
 
-## Что внутри
+## What's inside
 
 | | |
 |---|---|
-| `src/scene.bend` | мир: путь, состав, расстояния, трассировка, освещение |
-| `src/color.bend` | упаковка цвета в `U32` для `Image` |
-| `src/shape.bend` | скелет кадра без пикселей — на нём сформулированы законы |
-| `src/main.bend` | безоконный драйвер: кадр, разворот квадродерева, PPM |
-| `LAWS.bend` / `PROOF.bend` | законы и доказательства, ворота коммита |
-| `docs/benchmarks.md` | числа и их разбор |
-| `docs/laws.md` | что доказуемо, что нет и почему |
-| `docs/language-notes.md` | справочник по языку, всё проверено запуском |
-| `docs/reference-demo-spec.md` | что делает оригинальная демка, до констант |
-| `docs/journal.md` | хронология: что сломалось и как починили |
-| `docs/base-2.0.5.txt` | дамп `bend base` для версии 2.0.5 — справочник по API |
-| `tools/order.py` | топологическая сортировка `def`: порядок объявлений обязателен |
-| `tools/storyboard.py` | серия кадров вдоль пути → GIF и MP4 |
-| `tools/ppm2png.py` | PPM → PNG без библиотек |
-| `bench/` | драйвер бенчмарков и точный измеритель |
+| `src/scene.bend` | the world: track, consist, distances, tracing, lighting |
+| `src/color.bend` | packing colour into `U32` for `Image` |
+| `src/shape.bend` | the pixel-free frame skeleton — the laws are stated on it |
+| `src/main.bend` | headless driver: frame, quadtree unfolding, PPM |
+| `LAWS.bend` / `PROOF.bend` | laws and proofs, the commit gate |
+| `docs/benchmarks.md` | numbers and their analysis |
+| `docs/laws.md` | what is provable, what is not, and why |
+| `docs/language-notes.md` | language reference, everything verified by running |
+| `docs/reference-demo-spec.md` | what the original demo does, down to the constants |
+| `docs/journal.md` | chronology: what broke and how it was fixed |
+| `docs/base-2.0.5.txt` | dump of `bend base` for version 2.0.5 — API reference |
+| `tools/order.py` | topological sort of `def`s: declaration order is mandatory |
+| `tools/storyboard.py` | a series of frames along the track → GIF and MP4 |
+| `tools/ppm2png.py` | PPM → PNG without libraries |
+| `bench/` | benchmark driver and the exact measurer |
 
-## Как это устроено
+## How it is put together
 
-Кадр — это `Image`-квадродерево. Каждый уровень строится одним параллельным
-вызовом на четыре части:
+A frame is an `Image` quadtree. Each level is built by one parallel call into
+four parts:
 
 ```python
 a b c f = Scene.frame(e, x, y, cam, cars)
@@ -107,26 +115,29 @@ a b c f = Scene.frame(e, x, y, cam, cars)
 Qua{a, b, c, f}
 ```
 
-Это единственное место, где работа делится; всё остальное — чистые функции от
-координат. Пиксель — трассировка луча: аналитические пересечения с землёй,
-насыпью, рельсами и вагонами, круглые конусы вместо ёлок, небо со звёздами и
-луной, туман и тонмаппинг по формулам оригинала.
+This is the only place where the work is divided; everything else is pure
+functions of coordinates. A pixel is a ray trace: analytic intersections with the
+ground, the embankment, the rails and the carriages, round cones instead of fir
+trees, a sky with stars and the moon, fog and tonemapping by the original's
+formulas.
 
-Земля, лес и вагоны сведены к минимуму, достаточному для узнаваемого кадра:
-нет рельефа с шумом, нет столбов контактной сети, нет деревень. Это
-осознанные упрощения, а не недоделки — они перечислены в шапке
-`src/scene.bend`.
+The ground, the forest and the carriages are reduced to the minimum sufficient
+for a recognisable frame: no noise relief, no catenary poles, no villages. These
+are deliberate simplifications, not unfinished parts — they are listed at the top
+of `src/scene.bend`.
 
-## Чего здесь нет
+## What is not here
 
-- **GPU.** CUDA на машине нет; `!` исполняется на CPU. Заявленные сайтом
-  «до ста раз на GPU» не проверялись и здесь не утверждаются.
-- **Сравнения с рукописным C.** Bend и так компилируется в C; честное
-  сравнение требует C-близнеца рендера.
-- **Интерактивного окна.** `App.run` в языке есть, но окна в этой среде нет;
-  всё безоконное, кадр пишется в PPM.
+- **GPU speed-up numbers.** The device lane works (see result 3), but no GPU
+  timing figures are claimed here: the site's "up to a hundred times on GPU" is
+  not verified or asserted.
+- **Comparison with hand-written C.** Bend already compiles to C; an honest
+  comparison requires a C twin of the renderer.
+- **An interactive window.** `App.run` exists in the language, but there is no
+  window in this environment; everything is headless, the frame is written to
+  PPM.
 
-## Лицензия
+## License
 
-MIT — см. `LICENSE`. Оригинальная демка в `reference/` — работа kvcop и
-распространяется на тех же условиях.
+MIT — see `LICENSE`. The original demo in `reference/` is the work of kvcop and
+is distributed under the same terms.
