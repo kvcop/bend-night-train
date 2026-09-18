@@ -1,0 +1,25 @@
+# Bend build outputs
+*.bin
+*.gpu
+*.js.map
+/out/
+/build/
+
+# Scratch / probe directories
+/.probe/
+/.probe-*/
+/.scratch/
+
+# Benchmark raw output (small, curated summaries live in docs/benchmarks.md)
+/bench/out/
+
+# Rendered frames are large; keep only what docs/ links to explicitly
+/assets/frames/*.ppm
+/assets/frames/*.png
+!assets/frames/.gitkeep
+
+# Editor / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/

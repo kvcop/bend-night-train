@@ -1,0 +1,6 @@
+#!/bin/sh
+# Local Bend launcher: keeps Bend's state inside the workspace so the
+# sandboxed shell can run it without writing to $HOME.
+export BEND_HOME="${BEND_HOME:-/home/user/code/work/other/.tmp/bend-home}"
+export BEND_NO_TELEMETRY=1
+exec "$BEND_HOME/bin/bend" "$@"
