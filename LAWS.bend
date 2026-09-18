@@ -9,6 +9,11 @@
 # can mention a pixel's colour, a camera position or a track coordinate.
 # What can be stated and proven is the structure -- and the structure is
 # where this program's parallelism lives.
+#
+# The structure is the tile frame, not the old one-pixel ray marcher: a leaf
+# of `Shape.frame` is an 8x8 tile.  Frame depth `d` is the renderer's depth;
+# `Shape.frame.at(d)` shaves the fixed tile levels exactly as `Raster.frame`
+# does before `Frame.build`.
 import Base
 import ./src/scene.bend as Scene
 import ./src/shape.bend as Shape
@@ -23,16 +28,30 @@ law consist_slots:
 # LAW: splitting the frame into its four parallel quadrants loses no pixel
 # and invents none.  This is the law the scheduler relies on: the four-way
 # parallel call is only sound because the join reassembles exactly the
-# pixels that were handed out.
+# pixels that were handed out.  It holds for any four subtrees, not only the
+# ones `frame` builds.
 law quad_pixels:
-  for a: Image
-  for b: Image
-  for c: Image
-  for e: Image
-  {Shape.leaves(Qua{a, b, c, e}) == Nat.add(Shape.leaves(a), Nat.add(Shape.leaves(b), Nat.add(Shape.leaves(c), Shape.leaves(e)))) : Nat}
+  for a: Shape.Frame
+  for b: Shape.Frame
+  for c: Shape.Frame
+  for e: Shape.Frame
+  {Shape.pixels(Shape.Quad{a, b, c, e}) == Nat.add(Shape.pixels(a), Nat.add(Shape.pixels(b), Nat.add(Shape.pixels(c), Shape.pixels(e)))) : Nat}
 
-# LAW: an 8x8 frame is exactly 64 rays, cast once each.  Stated at depth 3, a
-# size the checker evaluates outright, so a change to the quadtree recursion
-# that drops or duplicates a quadrant fails here rather than in a picture.
+# LAW: an 8x8 frame is exactly 64 pixels, owned by one tile.  Stated at frame
+# depth 3 (the tile's own depth), a size the checker evaluates outright, so a
+# change to the tile's side or to the depth shaving fails here rather than in
+# a picture.
 law frame8:
-  {Shape.leaves(Shape.frame(3n)) == 64n : Nat}
+  {Shape.pixels(Shape.frame.at(3n)) == 64n : Nat}
+
+# LAW: at frame depth d the tree is exactly 4^(d-3) tiles.  Evaluated outright
+# at depth 6: 4^3 = 64.  A change to the four-way split or to the depth
+# shaving that drops or duplicates a subtree fails here.
+law frame_tiles:
+  {Shape.tiles(Shape.frame.at(6n)) == Nat.pow(4n, 3n) : Nat}
+
+# LAW: the frame covers exactly 2^d x 2^d pixels -- a tile is Tile.side()
+# squared, and the four-way join neither loses nor invents.  Evaluated
+# outright at depth 6: 64 x 64 = 4096.
+law frame_pixels:
+  {Shape.pixels(Shape.frame.at(6n)) == Nat.mul(Nat.pow(2n, 6n), Nat.pow(2n, 6n)) : Nat}

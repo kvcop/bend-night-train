@@ -25,7 +25,16 @@ def Laws.consist_slots(k):
 def Laws.quad_pixels(a, b, c, e):
   {==}
 
-# True by computation: the checker normalises the depth-3 quadtree to a
-# tree of 64 leaves and counts them.
+# True by computation: the checker normalises the depth-3 frame to its single
+# tile and unfolds `Tile.side()` into the tile's pixel count.
 def Laws.frame8():
+  {==}
+
+# True by computation: the checker normalises the depth-6 tree to 64 tiles.
+def Laws.frame_tiles():
+  {==}
+
+# True by computation: the checker normalises the depth-6 tree, counts its 64
+# tiles at 64 pixels each, and reduces `Nat.pow(2n, 6n)` to the same number.
+def Laws.frame_pixels():
   {==}

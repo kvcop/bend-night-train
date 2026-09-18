@@ -1,18 +1,27 @@
-# The general frame law (4^d rays) runs out of arithmetic lemmas in Base.
+# The general 4^d law, in its smallest form, runs out of arithmetic lemmas.
 #
-# The step needs x + 0 = x and associativity, neither of which Base provides;
-# docs/laws.md shows where the proof stops.
+# `four` is the frame's tile count without the tree: the same four-way nesting
+# that `Shape.tiles(Shape.frame(d))` has, and the same induction step.  The step
+# needs the hypothesis rewritten inside a four-fold sum, plus x + 0 = x and
+# associativity; Base provides no lemmas about Nat at all, and the checker has no
+# rewriting, so the step cannot be taken.  docs/laws.md shows where it stops.
 import Base
-import ../../src/shape.bend as Shape
 
-law frame_pixels:
+def four(+d: Nat) -> Nat:
+  match d:
+    case 0n:
+      1n
+    case 1n+p:
+      Nat.add(four(p), Nat.add(four(p), Nat.add(four(p), four(p))))
+
+law four_is_pow:
   for d: Nat
-  {Shape.leaves(Shape.frame(d)) == Nat.pow(4n, d) : Nat}
+  {four(d) == Nat.pow(4n, d) : Nat}
 
-def frame_pixels(d):
+def four_is_pow(d):
   match d:
     case 0n:
       {==}
     case 1n+p:
-      %frame_pixels(p) : {Shape.leaves(Shape.frame(p)) == Nat.pow(4n, p) : Nat}
+      %four_is_pow(p) : {four(p) == Nat.pow(4n, p) : Nat}
       {==}
