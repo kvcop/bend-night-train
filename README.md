@@ -17,10 +17,10 @@ carries only the triangles whose screen bounding box reaches it, and every pixel
 is shaded once, by the triangle that won it. A 512x512 frame takes 0.19 s on 32
 threads, and the renderer can be watched while it runs.
 
-[![Bend 2 rasteriser (left) against the original WebGL demo (right)](assets/video/compare-512-poster.png)](assets/video/compare-512.mp4)
+![Bend 2 rasteriser (left) against the original WebGL demo (right), eight seconds of the same ride](assets/video/compare-512.gif)
 
 *Eight seconds of the same ride, both sides on the same camera —
-`assets/video/compare-512.mp4`.*
+`assets/video/compare-512.gif`; the H.264 original is `assets/video/compare-512.mp4`.*
 
 ## How close is it to the original
 
@@ -84,7 +84,7 @@ make build                  # native binary via clang
 make frame                  # 512x512 frame to out/frame.png
 make bench                  # sweep into bench/results.csv
 make compare                # render + reference + metrics, 1024x1024
-make video                  # record assets/video/compare-512.mp4
+make video                  # record the clip: mp4, poster, gif
 
 ./tools/live.sh             # watch it render, in a window
 ./tools/bend src/main.bend  # check and run on the JS backend

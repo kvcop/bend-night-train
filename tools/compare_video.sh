@@ -16,7 +16,9 @@
 # Defaults: 512x512 (depth 9), 8 seconds, 25 fps, 24 threads, start at s=110.
 # NT_DEPTH / NT_START / NT_RATE / NT_SECONDS / NT_THREADS / NT_WORK override.
 # Alongside the mp4 the script writes a poster frame, `<outfile>-poster.png`,
-# which is what a README can embed.
+# and an animated GIF, `<outfile>.gif`.  The GIF is what a README can embed:
+# GitHub's sanitiser drops <video> unless its src is one of GitHub's own
+# attachment URLs, so an inline clip has to be an image.
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
@@ -75,4 +77,14 @@ ffmpeg -loglevel error -y -framerate "$RATE" -i "$WORK/stack/stack_%04d.png" \
 
 POSTER="${OUT%.*}-poster.png"
 cp "$(printf '%s/stack/stack_%04d.png' "$WORK" "$(( COUNT / 2 ))")" "$POSTER"
-echo "compare_video: wrote $OUT and $POSTER ($COUNT frames at ${RATE}fps)"
+
+# GIF is a poor codec for a dark, grainy night scene, so the settings are a
+# compromise measured against the frames: half the frame rate, 720 px wide,
+# one 128-colour palette for the whole clip (stats_mode=diff, bayer dither).
+# Eight seconds lands at ~7.8 MB; sharper costs megabytes, not kilobytes.
+GIF="${OUT%.*}.gif"
+ffmpeg -loglevel error -y -i "$OUT" \
+  -vf "fps=12.5,scale=720:-2:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128:stats_mode=diff[p];[s1][p]paletteuse=dither=bayer:bayer_scale=5" \
+  -loop 0 "$GIF"
+
+echo "compare_video: wrote $OUT, $POSTER and $GIF ($COUNT frames at ${RATE}fps)"

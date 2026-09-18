@@ -17,10 +17,10 @@
 выиграл. Кадр 512x512 считается за 0.19 с на 32 потоках, и рендер можно смотреть
 прямо во время работы.
 
-[![Растеризатор на Bend 2 (слева) против оригинальной WebGL-демки (справа)](assets/video/compare-512-poster.png)](assets/video/compare-512.mp4)
+![Растеризатор на Bend 2 (слева) против оригинальной WebGL-демки (справа), восемь секунд одной поездки](assets/video/compare-512.gif)
 
 *Восемь секунд одной и той же поездки, обе стороны на одной камере —
-`assets/video/compare-512.mp4`.*
+`assets/video/compare-512.gif`; исходник в H.264 — `assets/video/compare-512.mp4`.*
 
 ## Насколько это похоже на оригинал
 
@@ -82,7 +82,7 @@ make build                  # нативный бинарник через clang
 make frame                  # кадр 512x512 в out/frame.png
 make bench                  # прогон в bench/results.csv
 make compare                # рендер + эталон + метрики, 1024x1024
-make video                  # записать assets/video/compare-512.mp4
+make video                  # записать клип: mp4, постер, gif
 
 ./tools/live.sh             # смотреть, как он рендерит
 ./tools/bend src/main.bend  # проверка и запуск на JS-бэкенде
