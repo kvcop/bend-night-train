@@ -394,14 +394,26 @@ def Tri.emit.chunks.all(cs: List<&2, List<&2, Geo.WTri>>, +cam: VCam)
       List.append(&2, Tri, Tri.emit.chunks.all(rest, cam), Tri.emit(c, cam))
 
 
+# The split's two halves come back in a constructor, not concatenated at the
+# fork.  Joining them there -- `List.concat([b, a])`, the obvious way -- costs
+# the fork its parallelism: a branch whose value is consumed by a strict fold at
+# the fork site is evaluated on the fork's own thread, while one the caller
+# forces later, out of a constructor field, is handed to another worker.  With
+# the concat the whole projection of the world ran at 118% CPU; the flattening
+# pass below is where the pieces are finally forced.
+type Emit is Data:
+  EmitOne{xs: List<&2, Tri>}
+  EmitCat{l: Emit, r: Emit}
+
+
 # Emitting walks a list left to right prepending, so emitting `left <> right`
-# is emitting right first and then left; the halves are joined in that order to
-# keep the projected list identical to the serial one.
+# is emitting right first and then left; the halves are flattened in that order
+# to keep the projected list identical to the serial one.
 def Tri.emit.chunks.go(+d: Nat, +cs: List<&2, List<&2, Geo.WTri>>, +cam: VCam)
-  -> List<&2, Tri>:
+  -> Emit:
   match d:
     case 0n:
-      Tri.emit.chunks.all(cs, cam)
+      EmitOne{Tri.emit.chunks.all(cs, cam)}
     case 1n+k:
       +n = Tri.chunk.len(cs, 0n)
       +half = Nat.div(n, 2n)
@@ -409,12 +421,20 @@ def Tri.emit.chunks.go(+d: Nat, +cs: List<&2, List<&2, Geo.WTri>>, +cam: VCam)
       +right = List.drop(&2, List<&2, Geo.WTri>, cs, half)
       a b = Tri.emit.chunks.go(k, left, cam)
         Tri.emit.chunks.go(k, right, cam)
-      List.concat(&2, Tri, [b, a])
+      EmitCat{a, b}
+
+
+def Tri.emit.flat(e: Emit, +acc: List<&2, Tri>) -> List<&2, Tri>:
+  match e:
+    case EmitOne{xs}:
+      List.append(&2, Tri, xs, acc)
+    case EmitCat{l, r}:
+      Tri.emit.flat(r, Tri.emit.flat(l, acc))
 
 
 def Tri.emit.chunks(+cs: List<&2, List<&2, Geo.WTri>>, +cam: VCam)
   -> List<&2, Tri>:
-  Tri.emit.chunks.go(5n, cs, cam)
+  Tri.emit.flat(Tri.emit.chunks.go(5n, cs, cam), [])
 
 
 # ---- additive billboards ---------------------------------------------

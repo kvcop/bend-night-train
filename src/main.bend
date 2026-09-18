@@ -183,6 +183,22 @@ def Main.tris(+s: F32) -> List<&2, Geo.WTri>:
   List.append(&2, Geo.WTri, List.append(&2, Geo.WTri, a, b), c)
 
 
+# The same scene, as the chunk list the chunked driver wants: the track's four
+# ribbons, the eleven instanced kinds, the consist's five runs.  Each piece is
+# built by its own branch of the fork, and the three groups are concatenated in
+# the order Main.tris concatenates its soups, so the flattened chunks are the
+# serial triangle list triangle for triangle.
+def Main.tris.chunks(+s: F32) -> List<&2, List<&2, Geo.WTri>>:
+  +cars = Carriage.Carriage.cars()
+  a b c = World.World.chunks(s) Inst.Inst.chunks(s)
+    Carriage.Carriage.chunks(s, cars)
+  List.concat(&2, List<&2, Geo.WTri>, [a, b, c])
+
+
+def Main.ground.chunks(+s: F32) -> List<&2, List<&2, Geo.WTri>>:
+  World.World.ground.chunks(s)
+
+
 # ---- the live view ---------------------------------------------------
 # The demo's own ride, one frame per call, written to stdout as a P3 PPM with
 # no separator between frames.  That is the stream ffplay's image2pipe demuxer
@@ -199,9 +215,10 @@ def Main.tris(+s: F32) -> List<&2, Geo.WTri>:
 def View.frame.at(+ms: U32, +d: Nat, +s0: F32, +head: Bool) -> Raster.Frame:
   +t = (U32.to_f32(ms) * 0.001 : F32)
   +s = (s0 + 24.5 * t : F32)
-  Raster.Raster.frame(d, s, Ride.Ride.side(t, True{}), Ride.Ride.hgt(t, True{}),
-    Ride.Ride.yaw(s, t, True{}), Ride.Ride.pitch(t, True{}), Main.ground(s),
-    Main.tris(s), Ride.Ride.lights(s), [], t, head)
+  Raster.Raster.frame.chunks(d, s, Ride.Ride.side(t, True{}),
+    Ride.Ride.hgt(t, True{}), Ride.Ride.yaw(s, t, True{}),
+    Ride.Ride.pitch(t, True{}), Main.ground.chunks(s), Main.tris.chunks(s),
+    Ride.Ride.lights(s), [], t, head)
 
 
 # One frame's rows, top row first: the tree's `y` grows downward from the top
@@ -212,8 +229,7 @@ def View.rows(+i: Nat, +d: Nat, +w: U32, +fr: Raster.Frame) -> IO(Unit):
       IO.pure(Unit, Unit{})
     case 1n+k:
       do IO<Unit>:
-        IO.write(Raster.Raster.text.row(d, fr,
-          U32.sub(U32.sub(w, 1), U32.from_nat(k))))
+        Raster.Raster.emit.row(d, fr, U32.sub(U32.sub(w, 1), U32.from_nat(k)))
         View.rows(k, d, w, fr)
 
 
@@ -265,12 +281,12 @@ def Main.frame(+path: String) -> IO(Unit):
     # the yaw and the converged pitch (0.012) is used.
     +yaw : F32 = Main.f32.or.else(yaw0, Ride.Ride.yaw(s, t, mo))
     +pitch : F32 = Main.f32.or.else(pitch0, Ride.Ride.pitch(t, mo))
-    +gs : List<&2, Geo.WTri> = Main.ground(s)
-    +ws : List<&2, Geo.WTri> = Main.tris(s)
+    +gcs : List<&2, List<&2, Geo.WTri>> = Main.ground.chunks(s)
+    +wcs : List<&2, List<&2, Geo.WTri>> = Main.tris.chunks(s)
     +lts : Shade.Lights = Ride.Ride.lights(s)
-    +fr : Raster.Frame = Raster.Raster.frame(d, s, side, Ride.Ride.hgt(t, mo),
-      yaw,
-      pitch, gs, ws, lts, [], t, U32.is_eq(head, 1))
+    +fr : Raster.Frame = Raster.Raster.frame.chunks(d, s, side,
+      Ride.Ride.hgt(t, mo), yaw, pitch, gcs, wcs, lts, [], t,
+      U32.is_eq(head, 1))
     IO.print(U32.show(Raster.Raster.digest(d, fr)) ++ "\n")
     Main.save.maybe(U32.is_eq(ppm, 1), d, fr, path)
 
