@@ -72,21 +72,37 @@ def Main.scene(stage: U32, +s: F32) -> List<&2, Geo.WTri>:
   match stage:
     case 0:
       +cars = Carriage.Carriage.cars()
-      a b c = World.World.emit(s, []) Inst.Inst.emit(s, []) Carriage.Carriage.all(s, cars, [])
+      a b c = World.World.track(s, []) Inst.Inst.emit(s, []) Carriage.Carriage.all(s, cars, [])
       List.append(&2, Geo.WTri, List.append(&2, Geo.WTri, a, b), c)
     case 1:
-      a b = World.World.emit(s, []) Inst.Inst.emit(s, [])
+      a b = World.World.track(s, []) Inst.Inst.emit(s, [])
       List.append(&2, Geo.WTri, a, b)
     case 2:
-      World.World.emit(s, [])
+      World.World.track(s, [])
+    case _:
+      []
+
+
+# The ground is the one part of the world Raster.frame culls, so it travels on
+# its own list.  Stages 0-2 are the ones that build the world.
+def Main.ground(stage: U32, +s: F32) -> List<&2, Geo.WTri>:
+  match stage:
+    case 0:
+      World.World.ground(s, [])
+    case 1:
+      World.World.ground(s, [])
+    case 2:
+      World.World.ground(s, [])
     case _:
       []
 
 
 # Stage 4: the same whole scene, but kept as a chunk list end to end -- the
 # three generators are independent, so their chunk lists are built in parallel
-# and concatenated, and the projection later splits the 24 chunks itself.  The
-# other stages build the serial soup and go through Raster.frame.
+# and concatenated into the track, instanced and carriage chunks, and the
+# projection later splits the 24 chunks itself once the ground's four come
+# alongside from Main.ground.chunks.  The other stages build the serial soup
+# and go through Raster.frame.
 def Main.chunks(stage: U32, +s: F32) -> List<&2, List<&2, Geo.WTri>>:
   match stage:
     case 4:
@@ -97,20 +113,29 @@ def Main.chunks(stage: U32, +s: F32) -> List<&2, List<&2, Geo.WTri>>:
       []
 
 
+def Main.ground.chunks(stage: U32, +s: F32) -> List<&2, List<&2, Geo.WTri>>:
+  match stage:
+    case 4:
+      World.World.ground.chunks(s)
+    case _:
+      []
+
+
 # A match can only scrutinise a parameter, so the stage's choice of frame entry
 # point is passed in as a Bool; only the selected branch is evaluated.  The
 # unselected scene list is the empty one the other generator returns for this
 # stage, so no work is done twice.
 def Main.frame.pick(chunked: Bool, +d: Nat, +s: F32, +side: F32, +hgt: F32,
-  +yaw: F32, +pitch: F32, +cs: List<&2, List<&2, Geo.WTri>>,
+  +yaw: F32, +pitch: F32, +gcs: List<&2, List<&2, Geo.WTri>>,
+  +cs: List<&2, List<&2, Geo.WTri>>, +gs: List<&2, Geo.WTri>,
   +ws: List<&2, Geo.WTri>, +lts: Shade.Lights, +t: F32, +head: Bool)
   -> Raster.Frame:
   match chunked:
     case True{}:
-      Raster.Raster.frame.chunks(d, s, side, hgt, yaw, pitch, cs, lts, [], t,
+      Raster.Raster.frame.chunks(d, s, side, hgt, yaw, pitch, gcs, cs, lts, [], t,
         head)
     case False{}:
-      Raster.Raster.frame(d, s, side, hgt, yaw, pitch, ws, lts, [], t, head)
+      Raster.Raster.frame(d, s, side, hgt, yaw, pitch, gs, ws, lts, [], t, head)
 
 
 def Main.run() -> IO(Unit):
@@ -129,10 +154,12 @@ def Main.run() -> IO(Unit):
     +yaw : F32 = Ride.Ride.yaw(s, t, mo)
     +pitch : F32 = Ride.Ride.pitch(t, mo)
     +ws : List<&2, Geo.WTri> = Main.scene(stg, s)
+    +gs : List<&2, Geo.WTri> = Main.ground(stg, s)
     +cs : List<&2, List<&2, Geo.WTri>> = Main.chunks(stg, s)
+    +gcs : List<&2, List<&2, Geo.WTri>> = Main.ground.chunks(stg, s)
     +lts : Shade.Lights = Ride.Ride.lights(s)
     +fr : Raster.Frame = Main.frame.pick(is4, d, s, side, Ride.Ride.hgt(t, mo),
-      yaw, pitch, cs, ws, lts, t, True{})
+      yaw, pitch, gcs, cs, gs, ws, lts, t, True{})
     IO.print(U32.show(Raster.Raster.digest(d, fr)) ++ "\n")
 
 
