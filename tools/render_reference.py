@@ -14,7 +14,11 @@ this tool renders a *patched copy* of ``reference/night-train-webgl.html``
      rAF loop, writes the requested camera state, draws a single frame at
      ``dt = 0`` and returns ``canvas.toDataURL('image/png')``.
 
-The result is deterministic: the same arguments produce byte-identical PNGs.
+The result is deterministic: the same arguments produce byte-identical PNGs,
+whether the frame is rendered on its own or as frame i of a `--frames`
+sequence.  A sequence pays for that by opening a page per frame -- the demo's
+particle arrays carry state across draws, so frames of one session would not be
+the stills they claim to be; see the note in `main`.
 
 Camera convention
 -----------------
@@ -50,11 +54,20 @@ The demo's own defaults are ``s=110, lean=1, yaw=0, pitch=-0.02, motion=true``
 with ``quality`` auto.  A square frame is used because the demo picks
 ``fovy = W<H ? 1.20 : 1.12`` and the Bend renderer's ``S.fovy()`` is 1.12.
 
+A *sequence* rides the same camera: ``--frames N`` renders N frames, advancing
+``s`` by ``--speed/--fps`` and ``t`` by ``1/--fps`` per frame, so the clip plays
+back at the demo's own 24.5 m/s.  ``--out`` is then a printf pattern.  One
+browser serves the whole sequence -- launching it costs about four seconds --
+but each frame gets a page of its own, which costs about 0.4 s and is what
+keeps a sequence's frames the same pictures as the stills at those cameras.
+
 Usage::
 
   tools/render_reference.py --out out/ref.png --s 110 --lean 1 --info
   tools/render_reference.py --out out/ref.png --size 512 --quality low
   tools/render_reference.py --out out/ref.png --seed 7
+  tools/render_reference.py --out 'out/ref_%04d.png' --frames 192 --fps 24 \
+      --size 512 --s 110 --no-motion
 """
 
 from __future__ import annotations
@@ -164,6 +177,15 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--pitch", type=float, default=-0.02, help="state.pitch (head pitch, rad)")
     ap.add_argument("--t", type=float, default=0.0, help="state.t (animation clock, s)")
     ap.add_argument("--size", type=int, default=1024, help="square frame size, px")
+    ap.add_argument("--frames", type=int, default=1,
+                    help="number of frames; >1 advances s and t per frame and "
+                         "needs a printf pattern in --out (default: 1)")
+    ap.add_argument("--fps", type=float, default=30.0,
+                    help="frames per second of the sequence: t advances by "
+                         "1/fps, s by --speed/fps (default: 30)")
+    ap.add_argument("--speed", type=float, default=24.5,
+                    help="metres per second along the track (default: 24.5, the "
+                         "demo's own ride speed)")
     ap.add_argument("--seed", type=int, default=DEFAULT_SEED,
                     help="PRNG seed for the demo's Math.random (default: %d)" % DEFAULT_SEED)
     ap.add_argument("--motion", dest="motion", action="store_true", default=False,
@@ -178,6 +200,13 @@ def main(argv: list[str]) -> int:
 
     if args.size <= 0:
         ap.error("--size must be positive")
+    if args.frames <= 0:
+        ap.error("--frames must be positive")
+    if args.fps <= 0:
+        ap.error("--fps must be positive")
+    if args.frames > 1 and "%" not in args.out:
+        ap.error("--frames > 1 needs a printf pattern in --out, "
+                 "e.g. 'out/ref_%04d.png'")
 
     try:
         from playwright.sync_api import sync_playwright
@@ -207,45 +236,79 @@ def main(argv: list[str]) -> int:
                 "--use-gl=angle",
                 "--use-angle=swiftshader",
             ])
+            # A frame per page, not a frame per session.  The demo's motes and
+            # smoke are *stateful*: rendering frame i where frame i-1 left off
+            # gives a different picture from a fresh page at the same camera,
+            # and the difference grows along the clip (measured at 256x256:
+            # 5e-5 MAE after one frame, 5e-2 after 150 -- larger than every real
+            # difference between the two renderers).  A page costs about 0.4 s,
+            # against 5.5 s for a whole browser.
+            dt = 1.0 / args.fps
+            ds = args.speed / args.fps
+            raws: list[bytes] = []
+            info: dict = {}
+            checked = False
             try:
-                page = browser.new_page(
-                    viewport={"width": args.size, "height": args.size},
-                    device_scale_factor=1,
-                )
-                page.on("console", lambda m: console.append(f"{m.type}: {m.text}"))
-                page.on("pageerror", lambda e: console.append(f"pageerror: {e}"))
-                page.goto(html_path.as_uri())
-                page.wait_for_timeout(1500)
+                for i in range(args.frames):
+                    page = browser.new_page(
+                        viewport={"width": args.size, "height": args.size},
+                        device_scale_factor=1,
+                    )
+                    try:
+                        page.on("console",
+                                lambda m: console.append(f"{m.type}: {m.text}"))
+                        page.on("pageerror",
+                                lambda e: console.append(f"pageerror: {e}"))
+                        page.goto(html_path.as_uri())
+                        try:
+                            page.wait_for_function("() => !!window.__nt",
+                                                   timeout=15000)
+                        except Exception:
+                            raise SystemExit(
+                                "render_reference: the __nt hook did not install; "
+                                "the demo probably failed to start. Full console "
+                                "output:\n  %s"
+                                % ("\n  ".join(console) or "(empty)"))
 
-                webgl = page.evaluate(
-                    "() => { const c = document.getElementById('gl');"
-                    " if (!c) return 'no canvas';"
-                    " const g = c.getContext('webgl2');"
-                    " return g ? 'ok' : 'no webgl2'; }")
-                if webgl != "ok":
-                    raise SystemExit(
-                        "render_reference: WebGL2 is unavailable (%s). "
-                        "Full console output:\n  %s"
-                        % (webgl, "\n  ".join(console) or "(empty)"))
+                        # The canvas check is about this host, not this frame:
+                        # once is enough.
+                        if not checked:
+                            webgl = page.evaluate(
+                                "() => { const c = document.getElementById('gl');"
+                                " if (!c) return 'no canvas';"
+                                " const g = c.getContext('webgl2');"
+                                " return g ? 'ok' : 'no webgl2'; }")
+                            if webgl != "ok":
+                                raise SystemExit(
+                                    "render_reference: WebGL2 is unavailable (%s). "
+                                    "Full console output:\n  %s"
+                                    % (webgl, "\n  ".join(console) or "(empty)"))
+                            checked = True
 
-                if not page.evaluate("() => !!window.__nt"):
-                    raise SystemExit(
-                        "render_reference: the __nt hook did not install; the demo "
-                        "probably failed to start. Full console output:\n  %s"
-                        % ("\n  ".join(console) or "(empty)"))
-
-                data_url = page.evaluate("(o) => window.__nt.render(o)", opts)
-                info = page.evaluate("() => window.__nt.info()")
+                        # The camera of frame i: the same still, ridden along
+                        # the track.  t drives the particles, so the clip moves.
+                        frame_opts = dict(opts, s=args.s + i * ds,
+                                          t=args.t + i * dt)
+                        data_url = page.evaluate("(o) => window.__nt.render(o)",
+                                                 frame_opts)
+                        if not isinstance(data_url, str) or "," not in data_url:
+                            raise SystemExit(
+                                "render_reference: frame %d returned no PNG data "
+                                "URL" % i)
+                        raws.append(base64.b64decode(data_url.split(",", 1)[1]))
+                        info = page.evaluate("() => window.__nt.info()")
+                    finally:
+                        page.close()
             finally:
                 browser.close()
     finally:
         html_path.unlink(missing_ok=True)
         tmpdir.rmdir()
 
-    if not isinstance(data_url, str) or "," not in data_url:
-        raise SystemExit("render_reference: render returned no PNG data URL")
-    raw = base64.b64decode(data_url.split(",", 1)[1])
-    out.write_bytes(raw)
+    paths = [out] if args.frames == 1 else [pathlib.Path(str(out) % i)
+                                           for i in range(args.frames)]
+    for path, raw in zip(paths, raws):
+        path.write_bytes(raw)
 
     if (info.get("W"), info.get("H")) != (args.size, args.size):
         print("render_reference: warning: frame is %sx%s, expected %sx%s"
@@ -253,8 +316,13 @@ def main(argv: list[str]) -> int:
               file=sys.stderr)
     if args.info:
         print(json.dumps(info, indent=2, sort_keys=True))
-    print("%s  %dx%d  %d bytes" % (out, info["W"], info["H"], len(raw)),
-          file=sys.stderr)
+    if args.frames == 1:
+        print("%s  %dx%d  %d bytes" % (out, info["W"], info["H"], len(raws[0])),
+              file=sys.stderr)
+    else:
+        print("%s .. %s  %dx%d  %d frames (%d bytes each)"
+              % (paths[0], paths[-1], info["W"], info["H"], len(paths),
+                 len(raws[0])), file=sys.stderr)
     return 0
 
 

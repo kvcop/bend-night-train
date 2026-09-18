@@ -3,8 +3,8 @@
 # frame, the original WebGL frame at the matching frozen camera, and the
 # metrics between them.
 #
-# The cameras are not identical yet (see the compare target in the Makefile),
-# so this is for the eye first and the numbers second.
+# Both cameras are pinned exactly as the compare target in the Makefile pins
+# them, so the frames are comparable and the numbers mean something.
 #
 #   tools/series.sh [outdir] [s ...]
 #
@@ -19,13 +19,12 @@ OUT=${1:-out/series}
 shift || true
 POS=${*:-"0 110 150 320"}
 DEPTH=${NT_DEPTH:-10}
-SIDE=${NT_SIDE:-4.6}
 THREADS=${NT_THREADS:-8}
 
 mkdir -p "$OUT"
 make build >/dev/null
 for S in $POS; do
-  NT_DEPTH="$DEPTH" NT_PPM=1 NT_S="$S" NT_SIDE="$SIDE" NT_BANG=0 \
+  NT_DEPTH="$DEPTH" NT_PPM=1 NT_S="$S" NT_YAW=0.0 NT_PITCH=-0.02 \
     ./out/night-train --threads "$THREADS" >/dev/null
   python3 tools/ppm2png.py out/frame.ppm "$OUT/bend_s$S.png" >/dev/null
   python3 tools/render_reference.py --out "$OUT/ref_s$S.png" \

@@ -33,8 +33,8 @@ def main():
     ap.add_argument("--frames", type=int, default=72)
     ap.add_argument("--s0", type=float, default=0.0)
     ap.add_argument("--ds", type=float, default=2.0)
-    ap.add_argument("--side", default="4.6")
-    ap.add_argument("--bang", default="1")
+    ap.add_argument("--yaw", default=None, help="pin the head (else the demo's auto-look)")
+    ap.add_argument("--pitch", default=None, help="pin the head (else the demo's own pitch)")
     ap.add_argument("--threads", default="16")
     ap.add_argument("--fps", type=int, default=24)
     ap.add_argument("--gif-width", type=int, default=360)
@@ -52,10 +52,14 @@ def main():
             env.update({
                 "NT_DEPTH": args.depth,
                 "NT_S": f"{args.s0 + i * args.ds:.4f}",
-                "NT_SIDE": args.side,
-                "NT_BANG": args.bang,
                 "NT_PPM": "1",
             })
+            # The camera is the demo's own ride unless the head is pinned, the
+            # same convention the other drivers use.
+            if args.yaw is not None:
+                env["NT_YAW"] = args.yaw
+            if args.pitch is not None:
+                env["NT_PITCH"] = args.pitch
             render(binary, env, root)
             frame = os.path.join(tmp, f"{i:04d}.png")
             Image.open(os.path.join(root, "out", "frame.ppm")).save(frame)
