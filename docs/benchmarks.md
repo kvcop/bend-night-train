@@ -1,177 +1,108 @@
-# Бенчмарки: параллелизм Bend 2 на реальной нагрузке
+*English | [Русский](ru/benchmarks.md)*
 
-Все числа ниже получены на этой машине и воспроизводятся командами из текста.
-Сырые данные — `bench/results.csv` (108 запусков) и вывод `bench/measure.py`.
+# Benchmarks: Bend 2 parallelism on a real workload
 
-## Стенд
+All numbers below were produced on this machine and are reproducible with the
+commands in the text. Raw data: `bench/results.csv` (54 runs).
+
+## The machine
 
 | | |
 |---|---|
-| CPU | 32 ядра (`nproc` → 32) |
-| RAM | 125 ГиБ |
-| GPU | нет: `nvidia-smi` не общается с драйвером, `/usr/local/cuda` отсутствует |
-| clang | 18.1.3 (в гайде для `!` просят 19+, но сборка проходит) |
-| Bend | 2.0.5, запуск через `tools/bend` |
-| Нагрузка | `src/main.bend` — 4-арный параллельный обход квадродерева, на каждый лист трассировка луча |
+| CPU | Intel Core i9-14900HX, 24 physical cores |
+| Logical CPUs | 32 (`nproc` → 32), two hardware threads per core (SMT) |
+| RAM | 125 GiB |
+| CPU scaling | `intel_pstate` active, turbo enabled, frequency not pinned |
+| clang | 18.1.3 |
+| Bend | 2.0.5, launched through `tools/bend` |
+| Workload | `src/main.bend` — the rasteriser: a four-way parallel quadtree walk, one tile of pixels per leaf |
 
-Кадр — это `Image`-квадродерево глубины `d`, то есть `2^d × 2^d` пикселей.
-Глубины 8 / 9 / 10 — это 65 536 / 262 144 / 1 048 576 лучей.
+A frame is a quadtree of depth `d`, that is `2^d × 2^d` pixels. Depths 8 / 9 /
+10 are 65 536 / 262 144 / 1 048 576 pixels. Unlike the earlier ray-marching
+renderer, a leaf is not one pixel but an 8×8 tile that carries the triangles
+whose screen box reaches it, so the tree is `d - 3` levels deep.
+
+## Method
 
 ```sh
-./tools/bend src/main.bend -o out/night-train
-NT_DEPTH=10 NT_PPM=0 ./out/night-train --threads 32
+make build
 REPS=3 ./bench/bench.sh out/night-train bench/results.csv
-python3 bench/measure.py --reps 3 --env NT_DEPTH=10 --env NT_PPM=0 -- ./out/night-train --threads 8
 ```
 
-`NT_PPM=0` отключает запись PPM: мерим рендер, а не файловый ввод-вывод.
+`bench/bench.sh` covers every `(depth, threads)` cell three times, after a single
+warm-up pass, and times each run with `/usr/bin/time -f "%e %U"`. Every run sets
+`NT_PPM=0`, so PPM I/O is not timed. The number reported below is the median of
+the three reps. There is one lane only: the renderer has no `!` call, so
+`--backend`, `--bang` and `--gpu` no longer exist.
 
-## 1. Масштабирование по ядрам
+For resolution finer than `/usr/bin/time`'s centiseconds, `bench/measure.py`
+repeats a single command with `perf_counter` and `getrusage` and prints the
+median:
 
-`bench/results.csv`, медиана из 3 прогонов, секунды. `bang=0` — обычный
-параллельный вызов, `bang=1` — тот же вызов с `!`.
+```sh
+python3 bench/measure.py --reps 5 --env NT_DEPTH=10 --env NT_PPM=0 -- ./out/night-train --threads 8
+```
 
-| глубина | `!` | 1 | 2 | 4 | 8 | 16 | 32 |
+## 1. Scaling with cores
+
+`bench/results.csv`, median of 3 reps, seconds. Each cell is
+`wall_s / user_s / (user_s ÷ wall_s)`:
+
+| depth | t=1 | t=2 | t=4 | t=8 | t=16 | t=32 | checksum |
 |---|---|---|---|---|---|---|---|
-| 8 | 0 | 0.190 | 0.120 | 0.090 | 0.090 | 0.080 | 0.090 |
-| 8 | 1 | 0.190 | 0.120 | 0.100 | 0.090 | 0.090 | 0.090 |
-| 9 | 0 | 0.760 | 0.470 | 0.360 | 0.320 | 0.300 | 0.320 |
-| 9 | 1 | 0.800 | 0.500 | 0.370 | 0.320 | 0.290 | 0.300 |
-| 10 | 0 | 3.080 | 1.890 | 1.360 | 1.150 | 1.110 | 1.110 |
-| 10 | 1 | 3.050 | 1.920 | 1.410 | 1.150 | 1.180 | 1.190 |
+| 8 (256²) | 0.360 / 0.33 / 0.92 | 0.260 / 0.39 / 1.50 | 0.220 / 0.44 / 2.00 | 0.200 / 0.47 / 2.35 | 0.190 / 0.48 / 2.53 | 0.160 / 0.49 / 3.06 | 299380445 |
+| 9 (512²) | 0.660 / 0.62 / 0.94 | 0.400 / 0.67 / 1.68 | 0.290 / 0.72 / 2.48 | 0.240 / 0.76 / 3.17 | 0.230 / 0.84 / 3.65 | 0.190 / 0.92 / 4.84 | 1065901264 |
+| 10 (1024²) | 1.660 / 1.63 / 0.98 | 0.900 / 1.65 / 1.83 | 0.580 / 1.71 / 2.95 | 0.430 / 1.79 / 4.16 | 0.370 / 2.05 / 5.54 | 0.310 / 2.55 / 8.23 | 3959815329 |
 
-**Первое:** `!` и обычный параллельный вызов на этой машине неразличимы.
-Это ожидаемо — GPU нет, и по гайду `!` без GPU исполняется на CPU, — но
-полезно как проверка: тег адресации ничего не стоит и ничего не ломает.
+Speed-up at 32 threads: depth 8 = 2.3×, depth 9 = 3.5×, depth 10 = 5.4×.
+Wall time keeps falling all the way to 32 threads; there is no ceiling.
 
-**Второе:** ускорение упирается в потолок рано.
+## 2. Where the CPU goes
 
-| потоков | wall, мс (d=10) | ускорение | эффективность |
-|---|---|---|---|
-| 1 | 3033 | 1.00× | 100 % |
-| 2 | 1881 | 1.61× | 81 % |
-| 4 | 1360 | 2.23× | 56 % |
-| 8 | 1181 | 2.57× | 32 % |
-| 16 | 1110 | 2.73× | 17 % |
-| 32 | 1111 | 2.73× | 8.5 % |
+Total child CPU grows far more slowly than the speed-up, not faster:
 
-Точные замеры (`bench/measure.py`, медиана из 3, `--threads 8` против `1`):
-
-```
-NT_DEPTH=10 NT_PPM=0 ./out/night-train --threads 1
-  wall    3032.6 ms   cpu    3030.6 ms   cpu/wall  1.00x
-NT_DEPTH=10 NT_PPM=0 ./out/night-train --threads 8
-  wall    1180.6 ms   cpu    8670.5 ms   cpu/wall  7.34x
-NT_DEPTH=10 NT_PPM=0 ./out/night-train --threads 32
-  wall    1240.9 ms   cpu   24964.2 ms   cpu/wall 20.12x
-```
-
-Тридцать два потока **медленнее**, чем восемь.
-
-## 2. Куда уходит процессорное время
-
-Главное наблюдение — не медленное ускорение, а рост суммарного CPU:
-
-| глубина | CPU на 1 потоке | CPU на 32 потоках | рост CPU | выигрыш по wall |
+| depth | CPU at 1 thread | CPU at 32 threads | CPU growth | wall speed-up |
 |---|---|---|---|---|
-| 8 | 197 мс | 1823 мс | 9.3× | 2.0× |
-| 9 | 783 мс | 6622 мс | 8.5× | 2.6× |
-| 10 | 3031 мс | 24 964 мс | 8.2× | 2.4× |
+| 8 | 0.33 s | 0.49 s | 1.5× | 2.3× |
+| 9 | 0.62 s | 0.92 s | 1.5× | 3.5× |
+| 10 | 1.63 s | 2.55 s | 1.6× | 5.4× |
 
-Отношение `cpu/wall` на 32 потоках — 18–22× при том, что полезного
-параллелизма в лучшем случае 2.7×. Значит, порядка двадцати потоков в
-каждый момент что-то крутят, пока работу делают два-три.
+At depth 10 the total CPU rises by 56% while wall time falls 5.4×, and
+`user ÷ wall` reaches 8.2 at 32 threads. (The ray-marching renderer, by
+contrast, pinned at 2.7× with CPU growing roughly eightfold.)
 
-Чтобы отделить планировщик от нагрузки, возьмём работу, у которой нет ни
-ветвлений, ни аллокаций, ни разброса: то же параллельное дерево, но лист
-возвращает константу.
+What the source supports about the shape of the work: the leaf of the tree is
+an 8×8 tile, and `Frame.build` hands each leaf only the triangles
+(`Tri.keep`) and billboards (`Spr.keep`) whose screen bounds reach that tile.
+Every pixel of the tile then walks that short list once and is shaded by at
+most one triangle, so a leaf's cost is bounded by its pixel count times a
+small, local list — not by a per-pixel march whose length depends on what the
+ray meets. That is consistent with the measured behaviour: more threads keep
+helping, and the CPU cost grows slowly. The scheduler itself was not profiled,
+so no claim is made here about why it behaves as it does at a given thread
+count.
 
-```sh
-./tools/bend .probe-lang/bench/tree.bend -o .probe-lang/bench/tree   # 2^21 листьев
-python3 bench/measure.py --reps 5 -- ./.probe-lang/bench/tree --threads 32
-```
+## 3. Purity check
 
-| потоков | wall, мс | cpu, мс | cpu/wall |
-|---|---|---|---|
-| 1 | 9.7 | 9.3 | 0.96× |
-| 2 | 5.7 | 9.9 | 1.74× |
-| 4 | 3.7 | 10.5 | 2.81× |
-| 8 | 2.6 | 10.8 | 4.14× |
-| 16 | 2.6 | 12.1 | 4.57× |
-| 32 | 2.6 | 13.5 | 5.11× |
+All 54 runs gave exactly one digest per depth, independent of the thread count:
 
-На ровной работе суммарный CPU почти не растёт (9.3 → 13.5 мс, +45 %), а
-`cpu/wall` доходит только до 5×. Вариант с аллокацией трёхполевого узла на
-лист (`.probe-lang/bench/alloc.bend`) даёт то же самое: 8.4 → 14.2 мс.
-
-**Вывод.** Дело не в аллокаторе и не в объёме работы, а в её **неровности**.
-Луч трассируется за разное число шагов; пока одни поддеревья ещё считаются,
-остальные потоки не засыпают, а крутятся. Планировщик Bend (contention-free
-binary fork-join, задача выдаётся ядру ровно один раз) при этом не умеет
-парковать простаивающее ядро. Отсюда обе наблюдаемые вещи: потолок
-ускорения около 2.7× и восьмикратный рост CPU при 32 потоках.
-
-Практический вывод для этого проекта: **рендерить на 8–16 потоках**, не на
-32. На 32 ядрах 32 потока не быстрее восьми, но жгут втрое больше CPU.
-
-## 3. Детерминизм
-
-Все 108 запусков `bench/bench.sh` дали ровно один контрольный код на
-глубину, независимо от числа потоков и от `!`:
-
-| глубина | пикселей | контрольный код |
+| depth | pixels | digest |
 |---|---|---|
-| 8 | 65 536 | `3185618221` |
-| 9 | 262 144 | `2158427939` |
-| 10 | 1 048 576 | `13924308` |
+| 8 | 65 536 | 299380445 |
+| 9 | 262 144 | 1065901264 |
+| 10 | 1 048 576 | 3959815329 |
 
-Это и есть проверка корректности параллелизма: картинка не зависит от
-порядка обхода. Контрольный код — XOR-свёртка листьев, поэтому он не
-чувствителен к порядку **строк**; равенство кодов доказывает совпадение
-множества пикселей, но не их расположения. Расположение проверяется глазами
-по `assets/frames/`.
+`Raster.digest` folds the frame with `Frame.sum`, which adds an avalanche-mixed
+hash of each pixel (`Frame.hash1`). Addition commutes, so equal digests prove
+the same *set* of pixels, not their arrangement; placement is checked visually
+against the frames in `assets/frames/`. Equality across thread counts is the
+parallelism correctness check: the picture does not depend on the walk order.
 
-## 4. Бэкенды: нативный против JS
+## 4. Limits of the measurement
 
-Один и тот же файл, одна и та же глубина 8:
-
-```sh
-NT_DEPTH=8 NT_PPM=0 ./tools/bend src/main.bend              # JS-бэкенд
-NT_DEPTH=8 NT_PPM=0 ./out/night-train --threads 1           # нативный
-```
-
-| бэкенд | wall | CPU | против нативного |
-|---|---|---|---|
-| JS | 6.86 с | 7.77 с | — |
-| нативный, 1 поток | 0.199 с | 0.197 с | 34× быстрее |
-| нативный, 8 потоков | 0.095 с | 0.658 с | 72× быстрее |
-
-JS-бэкенд последовательный по построению: гайд прямо говорит, что
-JavaScript-таргет игнорирует параллелизм и `!`. Для интерактивной работы
-это непригодно, для отладки — удобно.
-
-## 5. Стоимость инструментов
-
-| операция | время |
-|---|---|
-| `bend PROOF.bend` (3 закона) | 0.25–0.34 с |
-| `bend src/main.bend -o out/night-train` (нативная сборка) | 2.30 с |
-| `bend src/main.bend -o out/night-train.c` (только C) | 1.40 с |
-| объём сгенерированного C | 13 624 строки |
-
-Проверка законов укладывается в треть секунды — это соответствует обещанию
-сайта, что проверяющий успевает за секунду и его можно гонять после каждой
-правки. Для проекта, где доказательства пишет агент, это ключевая цифра.
-
-## 6. Чего здесь нет
-
-- **GPU.** CUDA на машине нет, `.gpu`-файл не создаётся, `--gpu` на
-  `!`-бинарнике падает с `bend: --gpu on, but this binary found no GPU
-  device`. Сравнить CPU и GPU нельзя; заявленные сайтом «до ста раз» не
-  проверены и в этом отчёте не утверждаются.
-- **Сравнения с C.** Bend и так компилируется в C и собирается clang; честное
-  сравнение требует рукописного C-близнеца рендера, которого здесь нет.
-  Числа нативного времени — это время C-кода, сгенерированного Bend.
-- **Профилирования.** Причина роста CPU установлена по разнице между ровной и
-  неровной нагрузкой, а не по профилю планировщика; внутренности
-  `bend2/main.ts` не читались.
+- `/usr/bin/time %e` prints centiseconds, so every wall and user figure carries a 10 ms quantum. At depth 8 with one thread (0.36 s) that is about 3% of the number, and smaller differences are not resolved.
+- Three reps per cell, median only. No spread or confidence interval is reported.
+- The 32 logical CPUs are 24 physical cores under SMT. Thread counts above 16 land on hardware threads, not on extra cores, so part of the curve above 16 is SMT, not more silicon.
+- `intel_pstate` is active with turbo enabled and the clock is not pinned, so wall time depends on the boost and thermal state around each run. The medians reduce this but do not remove it. The sweep was taken on an otherwise quiet host; no contended run is published here.
+- Wall time includes fixed per-process cost (start-up, binary load, geometry projection), not only the tile loop. `NT_PPM=0` removes PPM file I/O, so the figure is a whole program run, not a rasteriser kernel time.
+- One host, one compiler, one build, one scene. There is no second backend or compiler to compare against.
