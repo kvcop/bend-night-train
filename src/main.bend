@@ -212,16 +212,29 @@ def Main.render(+bang: Bool, +d: Nat, +s: F32, +side: F32) -> Image:
 
 
 # ---- checksum --------------------------------------------------------
-# An order-independent digest of the framebuffer: the XOR fold makes a
-# flipped or transposed frame hash the same, so it is a cheap equality test
-# for a render against itself, not a fingerprint of the picture.
+# An order-independent digest of the framebuffer: every leaf contributes an
+# avalanche-mixed hash of its packed pixel and the tree folds them with a
+# wrapping sum.  Addition commutes, so a flipped or transposed frame hashes
+# the same -- a cheap equality test for a render against itself, not a
+# fingerprint of the picture.
+#
+# The fold has to be a sum, not an XOR.  The first version XOR-ed the four
+# quadrant sub-folds, which let them cancel: three materially different builds
+# produced one checksum, so the gate that is supposed to catch a changed frame
+# stayed quiet.  Summing mixed per-pixel hashes cannot cancel; what is left is
+# the ordinary 2^-32 collision, which is fine for an equality test.
+
+def Px.hash1(+c: U32) -> U32:
+  +x = U32.mul(U32.xor(c, 2246822519), 2654435761)
+  U32.xor(x, U32.shrn(x, 15n))
+
 
 def Px.checksum(+d: Nat, +img: Image, +acc: U32) -> U32:
   match d:
     case 0n:
       match img:
         case Pix{c}:
-          U32.add(U32.mul(acc, 1664525), U32.add(c, 1013904223))
+          U32.add(acc, Px.hash1(c))
         case Qua{tl, tr, bl, br}:
           0
     case 1n+e:
@@ -231,7 +244,7 @@ def Px.checksum(+d: Nat, +img: Image, +acc: U32) -> U32:
         case Qua{tl, tr, bl, br}:
           a b = Px.checksum(e, tl, acc) Px.checksum(e, tr, acc)
           c dd = Px.checksum(e, bl, a) Px.checksum(e, br, b)
-          U32.xor(c, dd)
+          U32.add(c, dd)
 
 
 
