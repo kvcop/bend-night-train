@@ -14,6 +14,6 @@ primary copies.
 | `reference-demo-spec.md` | what the original WebGL demo does, down to the constants |
 | `base-2.0.5.txt` | dump of `bend base` for 2.0.5 — the API reference |
 
-The Russian originals of the documents that have one live under `ru/` (for
+The Russian copies of the documents that have one live under `ru/` (for
 example `ru/laws.md`, `ru/journal.md`). The project overview is `README.md` at
-the repository root; its Russian original is `README.ru.md`.
+the repository root; its Russian copy is `README.ru.md`.

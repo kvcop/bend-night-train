@@ -14,9 +14,10 @@ tools/bend file.bend -o out.js  # JS only
 tools/bend PROOF.bend           # the laws gate
 ```
 
-All snippets live in `.probe-lang/probes/`, `.probe-lang/proofs/`,
-`.probe-lang/proofs2/`, `.probe-lang/bench/`, and the raw run logs in
-`.probe-lang/results/`. The command in the header of each log is reproducible.
+The experiment programs kept for this text live in `probes/`: `probes/raster/`
+(the renderer experiments), `probes/bench/` (the parallel measurements), and
+`probes/limits/` with `probes/neg/` (the laws and proofs). The command in the
+header of each program is reproducible.
 
 The main idea: Bend barely infers types, but its errors are precise — almost every
 error prints `expected`/`observed` and a location. The language is affine by default,

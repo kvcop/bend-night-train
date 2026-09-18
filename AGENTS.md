@@ -58,6 +58,13 @@ file is absent), not that the machine lacks a GPU.  And the GPU lane needs
 silently produces a CPU-only build.  Verify the device with `lspci`,
 `/proc/driver/nvidia/gpus/` and `nvidia-smi` before claiming anything about it.
 
+The renderer in `src/` contains **no `!` call**: measured on this host, the tag
+gave the rasteriser the same digest and the same host CPU time, while costing
+about 0.3 s per process to load the device program -- a factor of three for the
+live view, which starts one process per frame.  It was removed.  The notes above
+stay because they are what a `!` experiment needs; `probes/bench/bang.bend` is
+the probe that measures the lane, and `docs/journal.md` has the numbers.
+
 ## Never publish
 
 `tools/bend` refuses `--publish`, and so should you.  hub.bend-lang.com has no
@@ -74,9 +81,16 @@ conversation.  Not because a past summary said the toolchain should be probed.
 
 ## Layout
 
-- `src/` — the Bend implementation: `scene.bend` (the world, tracing, shading),
-  `color.bend` (F32 triple to `U32`), `shape.bend` (the pixel-free frame
-  skeleton the laws are stated on), `main.bend` (the headless driver).
+- `src/` — the Bend implementation, a CPU rasteriser: `raster.bend` (the frame
+  and the tile loop), `rt.bend` (types and camera), `shade.bend` (fragment and
+  sky shading), `world.bend`, `inst.bend`, `carriage.bend` (triangle soup),
+  `ride.bend` (the demo's camera and lights), `geo.bend` and `trk.bend`
+  (geometry and the track curve), `color.bend` (F32 triple to `U32`),
+  `main.bend` (the headless driver).  `shape.bend` is the pixel-free frame
+  skeleton the laws are stated on.  `scene.bend` is the ray marcher's world:
+  the renderer no longer imports it, and the only thing still reached from it is
+  `Scene.slots`, which `consist_slots` is a law about.  The ray marcher itself
+  is on the branch `legacy/raymarch`.
 - `LAWS.bend`, `PROOF.bend` — the laws gate at the repo root, by convention.
 - `bench/` — benchmark drivers and their raw output.
 - `docs/` — research output in **English** (the primary copy): `journal.md`
@@ -90,7 +104,9 @@ conversation.  Not because a past summary said the toolchain should be probed.
 
 ## Writing
 
-- User-facing documents (`README.md`, `docs/**`) are **Russian**.
+- User-facing documents are **English** (the primary copy): `README.md`,
+  `docs/**`.  The Russian translations live under `docs/ru/`, with
+  `README.ru.md` beside `README.md`.
 - Code comments, `AGENTS.md`, and commit messages are **English**.
 - `docs/journal.md` is append-only: every session adds a dated entry with what
   was tried, what worked, what broke, and the exact command that showed it.

@@ -4,50 +4,77 @@
 
 **The Night Train on Bend 2** — a research project about the
 [Bend 2](https://bend-lang.com/) language: affine dependent types, laws and
-proofs, automatic parallelism on CPU and GPU.
+proofs, automatic parallelism.
 
 The material is a self-contained WebGL demo, «Ночной поезд — из окна» (Night
 train — from the window): a procedural track from two sine waves, a consist of
 fifteen carriages, a night forest, stars, fog, light from the windows. It lives
-in `reference/` and does not change. We rewrote it in Bend 2 not for the picture,
-but to test by hand what the language is capable of — and to write that down.
+in `reference/` and does not change. We rewrote it in Bend 2 to test by hand what
+the language is capable of — and to write that down.
 
-![Night train](assets/frames/night-train-s150.png)
+The rewrite is a **tile rasteriser**: a frame is a quadtree of tiles, each tile
+carries only the triangles whose screen bounding box reaches it, and every pixel
+is shaded once, by the triangle that won it. A 512x512 frame takes 0.19 s on 32
+threads, and the renderer can be watched while it runs.
+
+[![Bend 2 rasteriser (left) against the original WebGL demo (right)](assets/video/compare-512-poster.png)](assets/video/compare-512.mp4)
+
+*Eight seconds of the same ride, both sides on the same camera —
+`assets/video/compare-512.mp4`.*
+
+## How close is it to the original
+
+Both cameras are pinned to the demo's own ride (`s = 110`, yaw 0, pitch -0.02,
+lean 1) and the reference is the original HTML rendered headlessly by
+`tools/render_reference.py`, deterministically seeded.
+
+![Bend 2 rasteriser on the left, the original WebGL demo on the right, same camera](assets/frames/compare-512-side.png)
+
+*Render on the left, reference on the right, same camera at 512x512;
+`assets/frames/compare-512-diff.png` is the amplified difference.*
+
+| | 512x512 | 1024x1024 |
+|---|---|---|
+| mean absolute error | 0.002056 (0.52/255) | 0.001850 (0.47/255) |
+| PSNR | 42.24 dB | 43.17 dB |
+| largest single-pixel error | 0.431 | 0.404 |
+| pixels off by more than 4/255 | 2.80 % | 2.20 % |
+
+`make compare` renders the pair and the numbers; `make video` records the same
+comparison as a clip, and every one of its 200 frames stays between 0.0021 and
+0.0037 — the camera does not drift out of agreement as the ride advances. In the
+still at 512x512 the remaining difference is not spread over the frame: it sits
+in one band of the near carriage's side, where the wrong triangle wins those
+pixels and takes the ambient light from the wrong end of the sky. The case is
+written up in `docs/journal.md`; it is not fixed.
 
 ## Headline results
 
-**1. Parallelism hits a ceiling long before the number of cores.**
-Rendering a 1024×1024 frame on 32 cores speeds up by **2.7×**, while the total
-CPU time grows by **8.2×**. At 32 threads the work goes slower than at 8. The
-reason is uneven load: rays are traced in different numbers of steps, and the
-scheduler does not park idle cores but spins them. Details and all the numbers:
-`docs/benchmarks.md`. (These are CPU-lane numbers; the GPU-enabled
-re-measurement is pending — see `docs/benchmarks.md`.)
+**1. It is fast enough to watch.**
+`tools/live.sh` renders the ride to stdout as a PPM stream and pipes it to
+`ffplay`: **5.6 fps at 256x256, 4.4 fps at 512x512** on 24 threads, one process
+per frame. Off-line, a 512x512 frame is 0.19 s and a 1024x1024 frame 0.31 s at
+32 threads.
 
-**2. What is provable is not what it seems.**
-The laws gate (`bend PROOF.bend`) passes, but proves **structure**: completeness
-of the four-way parallel split, the number of carriages, the number of rays. The
-numbers are unprovable in principle: all operations on `F32` are declared as
-`law` without a body, so a pixel's colour, the camera position and "the frame
-does not depend on the number of threads" cannot even be stated as a law.
-Analysis with verbatim errors: `docs/laws.md`.
+**2. Parallelism keeps paying, unlike the ray marcher.**
+The rasteriser speeds up **5.4x** at 1024x1024 on 32 threads (1.66 s -> 0.31 s)
+and is still improving there, where the ray marcher this repository started with
+was already slower at 32 threads than at 8. The frame digest is identical at
+every thread count and depth. Numbers, method and their limits:
+`docs/benchmarks.md`.
 
-**3. `!` runs on the device, not on the CPU.**
-On this host `!` is not a CPU fallback: the machine has an **RTX 4090 Laptop**
-(driver 580.178.04, CUDA 13.0), `tools/bend` sets `CUDA_HOME=/usr` for the
-distro CUDA 12 toolkit, `make build` emits `out/night-train.gpu`, and the `!`
-call runs on the device even without `--gpu`; `--gpu 4GB` only bounds device
-memory. The true CPU baseline is `NT_BANG=0`. CPU and device agree except for
-last-bit F32 rounding (≤4/255 on about 0.15% of pixels), so their checksums may
-differ. Determinism is measured: 108 runs, three depths, six values of
-`--threads`, two call variants — one and the same result.
+**3. What is provable is not what it seems.**
+The laws gate (`bend PROOF.bend`) passes, but proves **structure**: the tile
+recursion's shape and pixel count, the number of carriages, the number of
+particles. The numbers are unprovable in principle — every `F32` operation is
+declared as `law` without a body, so a pixel's colour and the camera position
+cannot even be stated as a law. `docs/laws.md`.
 
-**4. The language checks a lot, but requires knowing the rules in advance.**
-The list of thirteen errors actually caught is in `docs/journal.md`; the
-systematic reference, assembled by a separate investigation, is in
-`docs/language-notes.md` (1170 lines). The most unusual: mutual recursion is
-forbidden, declaration order is part of the program, `match` is not an
-expression, and only a parameter can be destructured.
+**4. The language checks a lot, but wants its rules known in advance.**
+The thirteen errors actually caught are listed in `docs/journal.md`; the
+systematic reference is `docs/language-notes.md`. The most unusual: mutual
+recursion is forbidden, declaration order is part of the program, `match` is not
+an expression, and only a parameter can be destructured.
 
 ## Quick start
 
@@ -55,41 +82,54 @@ expression, and only a parameter can be destructured.
 make proof                  # laws gate: must be "All terms check."
 make build                  # native binary via clang
 make frame                  # 512x512 frame to out/frame.png
-make bench                  # 108 runs, bench/results.csv
+make bench                  # sweep into bench/results.csv
+make compare                # render + reference + metrics, 1024x1024
+make video                  # record assets/video/compare-512.mp4
 
-./tools/bend src/main.bend   # check and run on the JS backend
+./tools/live.sh             # watch it render, in a window
+./tools/bend src/main.bend  # check and run on the JS backend
 ```
 
 Useful environment variables — for the finished binary:
 
 ```sh
-NT_DEPTH=10 NT_S=150 NT_SIDE=4.6 NT_PPM=0 ./out/night-train --threads 8
+NT_DEPTH=10 NT_S=150 NT_MOTION=0 NT_PPM=0 ./out/night-train --threads 16
 ```
 
 | | |
 |---|---|
 | `NT_DEPTH` | quadtree depth; frame `2^d × 2^d` |
 | `NT_S` | position along the track, metres |
-| `NT_SIDE` | camera's lateral offset from the track axis |
+| `NT_T` | animation clock, seconds (particles, window lights) |
+| `NT_MOTION` | `1` — the ride's sway and bob, `0` — frozen |
+| `NT_YAW`, `NT_PITCH` | pin the head; unset, the demo's auto-look decides |
+| `NT_HEAD` | `1` — the head is out of the window |
 | `NT_PPM` | `1` — write `out/frame.ppm`, `0` — only compute |
-| `NT_BANG` | `1` — render via `!`, `0` — with an ordinary parallel call |
+| `NT_VIEW` | `1` — stream frames to stdout instead of one file |
+| `NT_FRAMES`, `NT_MS`, `NT_STEP` | frames, first frame's time, step between them |
 
 `tools/bend` is a wrapper: in this environment `$HOME` is read-only, and a bare
 `bend` cannot write to `~/.bend`.
 
 The wrapper also **forbids `--publish`**. Bend's hub is a content-addressed store
 with no accounts and no deletion: a published package stays public forever. Only
-a human can lift the ban, by setting `BEND_ALLOW_PUBLISH=1`; an agent does not
-do this.
+a human can lift the ban, by setting `BEND_ALLOW_PUBLISH=1`; an agent does not do
+this.
 
 ## What's inside
 
 | | |
 |---|---|
-| `src/scene.bend` | the world: track, consist, distances, tracing, lighting |
-| `src/color.bend` | packing colour into `U32` for `Image` |
-| `src/shape.bend` | the pixel-free frame skeleton — the laws are stated on it |
-| `src/main.bend` | headless driver: frame, quadtree unfolding, PPM |
+| `src/raster.bend` | the tile quadtree: descend, render, PPM text |
+| `src/rt.bend` | triangles, camera, projection, back-face culling |
+| `src/shade.bend` | the fragment shader: windows, fog, tonemapping, sky |
+| `src/world.bend` | track, ballast, ground, forest, hedges |
+| `src/inst.bend` | the instanced scenery: poles, bushes, signals, dust |
+| `src/carriage.bend` | the consist, carriage by carriage |
+| `src/ride.bend` | the demo's camera: sway, bob, auto-look, lights |
+| `src/geo.bend`, `src/trk.bend` | vector maths and the track's own geometry |
+| `src/shape.bend` | the tile recursion without pixels — the laws are stated on it |
+| `src/main.bend` | driver: environment, scene, frame, live stream |
 | `LAWS.bend` / `PROOF.bend` | laws and proofs, the commit gate |
 | `docs/benchmarks.md` | numbers and their analysis |
 | `docs/laws.md` | what is provable, what is not, and why |
@@ -97,45 +137,33 @@ do this.
 | `docs/reference-demo-spec.md` | what the original demo does, down to the constants |
 | `docs/journal.md` | chronology: what broke and how it was fixed |
 | `docs/base-2.0.5.txt` | dump of `bend base` for version 2.0.5 — API reference |
+| `tools/compare.py`, `tools/render_reference.py` | still comparison and the headless reference |
+| `tools/compare_video.sh`, `tools/video_frames.py` | the comparison clip |
+| `tools/live.sh`, `tools/clip.sh` | watch it live, or shoot a clip off-line |
 | `tools/order.py` | topological sort of `def`s: declaration order is mandatory |
-| `tools/storyboard.py` | a series of frames along the track → GIF and MP4 |
-| `tools/ppm2png.py` | PPM → PNG without libraries |
 | `bench/` | benchmark driver and the exact measurer |
 
-## How it is put together
-
-A frame is an `Image` quadtree. Each level is built by one parallel call into
-four parts:
-
-```python
-a b c f = Scene.frame(e, x, y, cam, cars)
-  Scene.frame(e, x1, y, cam, cars)
-  Scene.frame(e, x, y1, cam, cars)
-  Scene.frame(e, x1, y1, cam, cars)
-Qua{a, b, c, f}
-```
-
-This is the only place where the work is divided; everything else is pure
-functions of coordinates. A pixel is a ray trace: analytic intersections with the
-ground, the embankment, the rails and the carriages, round cones instead of fir
-trees, a sky with stars and the moon, fog and tonemapping by the original's
-formulas.
-
-The ground, the forest and the carriages are reduced to the minimum sufficient
-for a recognisable frame: no noise relief, no catenary poles, no villages. These
-are deliberate simplifications, not unfinished parts — they are listed at the top
-of `src/scene.bend`.
+The ray-marching renderer this project started with is not gone: it lives on the
+branch `legacy/raymarch` (tag `raymarch-legacy`). It is the only renderer whose
+pixel is a pure function of the pixel, and the first laws were stated on it.
 
 ## What is not here
 
-- **GPU speed-up numbers.** The device lane works (see result 3), but no GPU
-  timing figures are claimed here: the site's "up to a hundred times on GPU" is
-  not verified or asserted.
+- **GPU speed-up numbers.** The `!` device lane was measured on this host: it
+  changed nothing for this renderer — same digest, same host CPU time — and cost
+  about 0.3 s per process, so it was removed. No claim is made either way about
+  what a GPU does for a different workload. `probes/bench/bang.bend` and
+  `docs/journal.md` have the measurements.
 - **Comparison with hand-written C.** Bend already compiles to C; an honest
-  comparison requires a C twin of the renderer.
-- **An interactive window.** `App.run` exists in the language, but there is no
-  window in this environment; everything is headless, the frame is written to
-  PPM.
+  comparison needs a C twin of the renderer.
+- **A window of its own.** The renderer is headless and writes PPM; `tools/live.sh`
+  is what puts it on screen, by piping frames into `ffplay`.
+
+## What it cost
+
+Two AI-assisted passes produced this repository — the ray marcher on a DeepSeek
+harness, then the rasteriser on this branch with Claude Code. The recorded spend
+for both together is **≈ $6.95**.
 
 ## License
 
