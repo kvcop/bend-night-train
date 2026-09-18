@@ -218,12 +218,14 @@ def Car.far() -> Car:
 
 
 
-def Car.kind.of(loco: Bool) -> U32:
+# `kind` is 0 for the locomotive and 1 + i%3 for a carriage, so the window
+# parity doubles as the paint variant the demo picks its lit windows from.
+def Car.kind.of(loco: Bool, +i: U32) -> U32:
   match loco:
     case True{}:
       0
     case False{}:
-      1
+      U32.add(U32.mod(i, 3), 1)
 
 
 
@@ -235,13 +237,28 @@ def M.window() -> U32: 4
 
 
 
+def M.window.dark() -> U32: 8
 
-def Car.mat.win(win: Bool) -> U32:
-  match win:
+
+
+def M.roof() -> U32: 9
+
+
+
+def M.brass() -> U32: 10
+
+
+
+# The demo lights a window by a hash of the car variant and the window index:
+# lit = ((variant*7 + w)*7919) % 11 > 2.  A dark pane keeps its own glass
+# colour and a near-zero emissive, which is what stops the whole side of the
+# train glowing.
+def Car.mat.lit(lit: Bool) -> U32:
+  match lit:
     case True{}:
       M.window()
     case False{}:
-      M.body()
+      M.window.dark()
 
 
 
@@ -250,30 +267,102 @@ def M.loco() -> U32: 7
 
 
 
-def Car.mat.pick(+kind: U32, win: Bool) -> U32:
+# Seven windows a side at lz = (w-3)*3; the glass is 1.51 x 0.94 and sits
+# 0.45 above the body centre.  The band is clipped at the outermost pane so
+# the modulo does not paint a window on the car end.
+def window.band(+m: F32, +lz: F32, +ly: F32) -> Bool:
+  ((F32.is_lt(F32.abs(lz), 9.76) && F32.is_lt(F32.abs((m - 1.5 : F32)), 0.755))
+    && (F32.is_lt(F32.abs((ly - 0.45 : F32)), 0.47) : Bool) : Bool)
+
+
+
+def window.pattern(+lz: F32, +ly: F32) -> Bool:
+  window.band(F32.mod((lz + 1.5 : F32), 3.0), lz, ly)
+
+
+
+
+# The brass mouldings run the length of the side at local y -0.82 and +1.32,
+# so a narrow band plus the ring around each window is the whole trim.
+def Car.trim.band(+ly: F32) -> Bool:
+  (F32.is_lt(F32.abs((ly + 0.82 : F32)), 0.035)
+    || F32.is_lt(F32.abs((ly - 1.32 : F32)), 0.030) : Bool)
+
+
+
+def Car.detail.pick4(mold: Bool) -> U32:
+  match mold:
+    case True{}:
+      M.brass()
+    case False{}:
+      M.body()
+
+
+
+def Car.detail.pick3(ring: Bool, mold: Bool) -> U32:
+  match ring:
+    case True{}:
+      M.brass()
+    case False{}:
+      Car.detail.pick4(mold)
+
+
+
+def Car.detail.pick2(band: Bool, ring: Bool, mold: Bool, lit: Bool) -> U32:
+  match band:
+    case True{}:
+      Car.mat.lit(lit)
+    case False{}:
+      Car.detail.pick3(ring, mold)
+
+
+
+def Car.detail.pick(roof: Bool, band: Bool, ring: Bool, mold: Bool, lit: Bool)
+  -> U32:
+  match roof:
+    case True{}:
+      M.roof()
+    case False{}:
+      Car.detail.pick2(band, ring, mold, lit)
+
+
+
+
+# Carriage detail: the arch roof, glass, the brass ring around a window, the
+# two side mouldings, then the paint.
+def Car.detail(+lx: F32, +ly: F32, +m: F32, +lz: F32, lit: Bool) -> U32:
+  +band = window.band(m, lz, ly)
+  +ring = (F32.is_lt(F32.abs((m - 1.5 : F32)), 0.93)
+    && F32.is_lt(F32.abs((ly - 0.45 : F32)), 0.64) : Bool)
+  +mold = (F32.is_gt(F32.abs(lx), 1.2) && Car.trim.band(ly) : Bool)
+  Car.detail.pick(F32.is_gt(ly, 1.5), band, ring, mold, lit)
+
+
+
+
+def Car.mat.pick(+kind: U32, detail: U32) -> U32:
   match kind:
     case 0:
       M.loco()
     case _:
-      Car.mat.win(win)
-
-
-
-
-# Seven windows a side at lz = (w-3)*3; the glass is 1.51 x 0.94 and sits
-# 0.45 above the body centre.
-def window.pattern(+lz: F32, +ly: F32) -> Bool:
-  +m = F32.mod((lz + 1.5 : F32), 3.0)
-  ((F32.is_lt(F32.abs((m - 1.5 : F32)), 0.755))
-    && (F32.is_lt(F32.abs((ly - 0.45 : F32)), 0.47) : Bool) : Bool)
+      detail
 
 
 
 
 def Car.mat(+px: F32, +py: F32, +pz: F32, car: Car) -> U32:
-  Car{cx, cy, cz, +cc, +ss, kind} = car
-  +lz = ((px - cx : F32) * ss + (pz - cz : F32) * cc : F32)
-  Car.mat.pick(kind, window.pattern(lz, (py - cy : F32)))
+  Car{cx, cy, cz, +cc, +ss, +kind} = car
+  +dx = (px - cx : F32)
+  +dz = (pz - cz : F32)
+  +lx = (dx * cc - dz * ss : F32)
+  +lz = (dx * ss + dz * cc : F32)
+  +ly = (py - cy : F32)
+  +m = F32.mod((lz + 1.5 : F32), 3.0)
+  +w = F32.to_u32((F32.floor((lz / 3.0 + 0.5 : F32)) + 3.0 : F32))
+  +variant = U32.sub(kind, 1)
+  +lit = U32.is_gt(
+    U32.mod(U32.mul(U32.add(U32.mul(variant, 7), w), 7919), 11), 2)
+  Car.mat.pick(kind, Car.detail(lx, ly, m, lz, lit))
 
 
 
@@ -308,10 +397,19 @@ def Car.sdf(+px: F32, +py: F32, +pz: F32, car: Car) -> F32:
   +dz = (pz - cz : F32)
   +lx = (dx * cc - dz * ss : F32)
   +lz = (dx * ss + dz * cc : F32)
+  +ly = (py - cy : F32)
   +q = box((F32.abs(lx) - S.car_hx() + 0.25 : F32),
-    (F32.abs((py - cy : F32)) - S.car_hy() + 0.25 : F32),
+    (F32.abs(ly) - S.car_hy() + 0.25 : F32),
     (F32.abs(lz) - S.car_hz() + 0.25 : F32))
-  (q - 0.25 : F32)
+  +body = (q - 0.25 : F32)
+  # The demo's roof is a half-cylinder arch on top of the body: 3.02 wide and
+  # 1.3 tall, running the car's length.  An ellipse scaled by its minor axis
+  # is a conservative distance bound, which is all the march needs.
+  +ry = F32.max((ly - S.car_hy() : F32), 0.0)
+  +e = (F32.hypot((F32.abs(lx) / 1.51 : F32), (ry / 0.65 : F32)) - 1.0 : F32)
+  +rz = (F32.abs(lz) - 12.06 : F32)
+  +roof = (F32.max((e * 0.65 : F32), rz) : F32)
+  F32.min(body, roof)
 
 
 
@@ -701,6 +799,12 @@ def albedo(+mat: U32, +px: F32, +py: F32, +pz: F32) -> V3:
       V3{0.380, 0.400, 0.440}
     case 7:
       V3{0.120, 0.190, 0.200}
+    case 8:
+      V3{0.070, 0.130, 0.190}
+    case 9:
+      V3{0.210, 0.250, 0.280}
+    case 10:
+      V3{0.490, 0.350, 0.180}
     case _:
       grass.albedo(px, pz)
 
@@ -715,7 +819,7 @@ def car(+i: U32, +s: F32) -> Car:
   +cz = (s + rel : F32)
   +yaw = Track.yaw(cz)
   Car{Track.x(cz), (Track.y(cz) + 2.6 : F32), cz, F32.cos(yaw), F32.sin(yaw),
-    Car.kind.of(U32.is_eq(i, 14))}
+    Car.kind.of(U32.is_eq(i, 14), i)}
 
 
 
@@ -786,6 +890,8 @@ def emissive(+mat: U32) -> F32:
   match mat:
     case 4:
       0.62
+    case 8:
+      0.02
     case _:
       0.0
 
@@ -886,9 +992,13 @@ def normal.car(+px: F32, +py: F32, +pz: F32, car: Car) -> V3:
   +dz = (pz - cz : F32)
   +lx = (dx * cc - dz * ss : F32)
   +lz = (dx * ss + dz * cc : F32)
-  +ax = F32.abs(lx)
-  +ay = F32.abs(dy)
-  +az = F32.abs(lz)
+  # The body is a long box, so the face has to be picked by the distance to
+  # each face in units of half-extent, not by the raw magnitude: a point on
+  # the side of a 24 m car has |lz| up to 12 and would otherwise take the
+  # end-cap normal.
+  +ax = (F32.abs(lx) / S.car_hx() : F32)
+  +ay = (F32.abs(dy) / S.car_hy() : F32)
+  +az = (F32.abs(lz) / S.car_hz() : F32)
   # `>=` is sugar for T.is_ge on the annotated type, so a comparison on F32
   # has to name F32 rather than be wrapped in `: Bool`.
   normal.car.axis(F32.is_ge(ax, ay) && F32.is_ge(ax, az),
