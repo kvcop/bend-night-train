@@ -1,15 +1,37 @@
 #!/bin/sh
 # Local Bend launcher.
 #
-# The sandbox this project was developed in keeps $HOME read-only, and a bare
-# `bend` fails when it writes its state to ~/.bend.  This wrapper prefers a
-# Bend home inside the checkout, then the normal per-user install, and falls
-# back to whatever `bend` is on PATH -- so it works both inside that sandbox
-# and on an ordinary machine.
+# Two jobs.  It keeps Bend's state next to the checkout, because the sandbox
+# this project was developed in keeps $HOME read-only and a bare `bend` fails
+# when it writes to ~/.bend; and it fences off `--publish`.
+#
+# The publish guard is not paranoia.  hub.bend-lang.com has no accounts, no
+# names and no versions -- a package is named by a hash of its contents -- and
+# its responses are served immutable.  There is no delete and no identity to
+# authorise one, so anything published stays published.  A research agent in
+# this project published a scratch file that way while probing the toolchain.
+# Hence: refuse, unless a human says so in as many words.
 set -e
 
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 root=$(dirname "$here")
+
+for arg in "$@"; do
+  if [ "$arg" = "--publish" ] && [ "${BEND_ALLOW_PUBLISH:-}" != "1" ]; then
+    cat >&2 <<'MSG'
+tools/bend: refusing --publish.
+
+  Publishing is irreversible.  hub.bend-lang.com has no accounts, no names and
+  no versions: a package is named by a hash of its contents and served
+  immutable.  Nothing in the client can take it back down.
+
+  If you have read what is about to go up and really mean it, re-run with:
+
+      BEND_ALLOW_PUBLISH=1 tools/bend <file.bend> --publish
+MSG
+    exit 2
+  fi
+done
 
 if [ -z "${BEND_HOME:-}" ]; then
   if [ -f "$root/.bend/current/bend2/main.ts" ]; then

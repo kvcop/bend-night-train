@@ -42,8 +42,30 @@ tries to touch `~/.bend`. Always use the wrapper:
 
 `tools/bend` sets `BEND_HOME` inside the workspace and disables telemetry.
 
-This machine has **no GPU and no CUDA**, and clang 18 (the guide asks for 19+
-when `!` is present, but `!` builds still succeed here and run on the CPU).
+The host has an **RTX 4090 Laptop (16 GB, driver 580.178.04, CUDA 13.0)** --
+but the default `workspace-write` sandbox does not pass `/dev/nvidia*` into the
+shell, so `nvidia-smi` fails there and `!` runs on the CPU.  Under wider sandbox
+access the device is visible.  Before ever claiming there is no GPU, check
+`lspci` and `/proc/driver/nvidia/gpus/`: their absence, not `nvidia-smi`, is
+what would mean it.
+
+Toolchain: clang 18 (the guide asks for 19+ when `!` is present; 18 still
+builds), and `nvcc` 12.0 at `/usr/bin/nvcc` -- note there is **no**
+`/usr/local/cuda`, which is where the guide says Linux GPU builds look.
+
+## Never publish
+
+`tools/bend` refuses `--publish`, and so should you.  hub.bend-lang.com has no
+accounts, no names and no versions: a package is named by the hash of its
+contents and served immutable, so there is nothing to delete it with.  Anything
+uploaded stays public for good.  The guard can be lifted with
+`BEND_ALLOW_PUBLISH=1`, and **only a human may set it** -- an agent must not,
+not even to "test" the publish path.
+
+The general rule behind this one: anything irreversible that leaves this
+machine -- publishing, pushing to a registry, sending mail, opening a public
+issue -- happens only because the human asked for it, in words, in the current
+conversation.  Not because a past summary said the toolchain should be probed.
 
 ## Layout
 
