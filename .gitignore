@@ -5,6 +5,9 @@
 /out/
 /build/
 
+# A checkout-local Bend install, when the wrapper uses one
+/.bend/
+
 # Scratch / probe directories
 /.probe/
 /.probe-*/

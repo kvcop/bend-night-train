@@ -1,6 +1,33 @@
 #!/bin/sh
-# Local Bend launcher: keeps Bend's state inside the workspace so the
-# sandboxed shell can run it without writing to $HOME.
-export BEND_HOME="${BEND_HOME:-/home/user/code/work/other/.tmp/bend-home}"
+# Local Bend launcher.
+#
+# The sandbox this project was developed in keeps $HOME read-only, and a bare
+# `bend` fails when it writes its state to ~/.bend.  This wrapper prefers a
+# Bend home inside the checkout, then the normal per-user install, and falls
+# back to whatever `bend` is on PATH -- so it works both inside that sandbox
+# and on an ordinary machine.
+set -e
+
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+root=$(dirname "$here")
+
+if [ -z "${BEND_HOME:-}" ]; then
+  if [ -f "$root/.bend/current/bend2/main.ts" ]; then
+    BEND_HOME="$root/.bend"
+  else
+    BEND_HOME="$HOME/.bend"
+  fi
+fi
+
+export BEND_HOME
 export BEND_NO_TELEMETRY=1
-exec "$BEND_HOME/bin/bend" "$@"
+
+if [ -x "$BEND_HOME/bin/bend" ]; then
+  exec "$BEND_HOME/bin/bend" "$@"
+fi
+if command -v bend >/dev/null 2>&1; then
+  exec bend "$@"
+fi
+echo "tools/bend: no Bend found; install it with" >&2
+echo "  curl -fsSL https://bend-lang.com/install.sh | sh" >&2
+exit 127
