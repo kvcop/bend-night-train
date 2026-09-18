@@ -16,9 +16,7 @@
 # Defaults: 512x512 (depth 9), 8 seconds, 25 fps, 24 threads, start at s=110.
 # NT_DEPTH / NT_START / NT_RATE / NT_SECONDS / NT_THREADS / NT_WORK override.
 # Alongside the mp4 the script writes a poster frame, `<outfile>-poster.png`,
-# and an animated GIF, `<outfile>.gif`.  The GIF is what a README can embed:
-# GitHub's sanitiser drops <video> unless its src is one of GitHub's own
-# attachment URLs, so an inline clip has to be an image.
+# and an animated GIF, `<outfile>.gif`.
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)

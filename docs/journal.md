@@ -297,10 +297,7 @@ after the emitter work above, writing the PPM is no longer the bottleneck.
 A still apiece was not convincing, so `tools/compare_video.sh` records the ride
 twice -- the Bend renderer and the original demo -- and stacks the two clips
 frame against frame into `assets/video/compare-512.mp4`, with a poster frame
-and an animated GIF beside it. The README embeds the GIF: GitHub's sanitiser
-strips `<video>` unless its `src` is one of GitHub's own attachment URLs, so an
-inline clip has to be an image there, and eight seconds at 720 px and 12.5 fps
-come to 7.8 MB. Both cameras are the pinned comparison camera
+and an animated GIF beside it. Both cameras are the pinned comparison camera
 (`s = 110 + 24.5 t`, yaw 0, pitch -0.02, no sway), and the clip is 25 fps
 because 1000/25 is 40 ms exactly: at 24 fps the render's integer-millisecond
 time step rounds to 41 ms and the two sides drift three metres apart by the end

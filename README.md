@@ -9,8 +9,10 @@ proofs, automatic parallelism.
 The material is a self-contained WebGL demo, «Ночной поезд — из окна» (Night
 train — from the window): a procedural track from two sine waves, a consist of
 fifteen carriages, a night forest, stars, fog, light from the windows. It lives
-in `reference/` and does not change. We rewrote it in Bend 2 to test by hand what
-the language is capable of — and to write that down.
+in `reference/` and does not change: [download the original
+page](https://github.com/kvcop/bend-night-train/raw/main/reference/night-train-webgl.html)
+and open it in a browser. We rewrote it in Bend 2 to test by hand what the
+language is capable of — and to write that down.
 
 The rewrite is a **tile rasteriser**: a frame is a quadtree of tiles, each tile
 carries only the triangles whose screen bounding box reaches it, and every pixel
