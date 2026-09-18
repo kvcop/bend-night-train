@@ -1,29 +1,39 @@
-# Main: the headless driver.  Renders one frame into an Image quadtree (the
-# parallel part), flattens it row-major, writes a text PPM, and prints a
-# checksum so two runs can be compared without diffing megabytes.
+# Main: the headless driver.
+#
+# Everything visual lives elsewhere -- the frame is a quadtree of tiles
+# (raster.bend), the scene is built from the world/inst/carriage meshes, and
+# the camera is ride.bend.  This module is the outside of that: take the
+# frame's parameters from the environment, build the scene, run the renderer,
+# print a digest, write a PPM.
+#
+# The image is written one row per File.write because the writer appends at the
+# current offset (probed, not assumed).  Building the whole PPM as one string
+# and writing it once would cost the square of the image: every row appended
+# copies everything already there, which for 1024x1024 is gigabytes.
 import Base
 import ./color.bend as Color
-import ./scene.bend as Scene
-
-# ---- flattening ------------------------------------------------------
-# The quadtree is not in row-major order, so a row is extracted by walking
-# the tree: below half-way the top children carry the row, above it the
-# bottom ones do.
-
-
-# ---- writing ---------------------------------------------------------
-# File.write hands back the handle beside a Result, so it binds directly;
-# only File.open is fallible in the IO.try sense.  The pair is unpacked in
-# its own def because a destructuring let is not a statement in a do block.
+import ./geo.bend as Geo
+import ./raster.bend as Raster
+import ./ride.bend as Ride
+import ./shade.bend as Shade
+import ./world.bend as World
+import ./inst.bend as Inst
+import ./carriage.bend as Carriage
 
 
+# ---- environment -----------------------------------------------------
+# One binary renders any frame at any size: recompiling between benchmark runs
+# would put the compiler in the timing.
+#
+# Every let inside a `do` block carries its type: `+x = f(y)` alone fails to
+# parse there, while `+x : T = f(y)` is accepted and is what the old driver
+# (and this one) writes.
 def Main.env.f32.maybe(m: Maybe<&2, F32>, +dflt: F32) -> IO(F32):
   match m:
     case None{}:
       IO.pure(F32, dflt)
     case Some{v}:
       IO.pure(F32, v)
-
 
 
 def Main.env.f32.pick(r: Result<&1, &1, U32 & String, String>, +dflt: F32)
@@ -35,40 +45,18 @@ def Main.env.f32.pick(r: Result<&1, &1, U32 & String, String>, +dflt: F32)
       Main.env.f32.maybe(F32.read(value), dflt)
 
 
-
 def Main.env.f32(name: String, +dflt: F32) -> IO(F32):
   do IO<F32>:
     r : Result<&1, &1, U32 & String, String> <- IO.get_env(name)
     Main.env.f32.pick(r, dflt)
 
 
-
-def Main.env.str.pick(r: Result<&1, &1, U32 & String, String>, +dflt: String)
-  -> IO(String):
-  match r:
-    case Fail{e}:
-      IO.pure(String, dflt)
-    case Done{value}:
-      IO.pure(String, value)
-
-
-
-def Main.env.str(name: String, +dflt: String) -> IO(String):
-  do IO<String>:
-    r : Result<&1, &1, U32 & String, String> <- IO.get_env(name)
-    Main.env.str.pick(r, dflt)
-
-
-
-# `U32.read` hands back a Maybe, and a match may not scrutinise a call, so
-# the parse result is matched in a def of its own.
 def Main.env.u32.maybe(m: Maybe<&2, U32>, +dflt: U32) -> IO(U32):
   match m:
     case None{}:
       IO.pure(U32, dflt)
     case Some{v}:
       IO.pure(U32, v)
-
 
 
 def Main.env.u32.pick(r: Result<&1, &1, U32 & String, String>, +dflt: U32)
@@ -80,186 +68,140 @@ def Main.env.u32.pick(r: Result<&1, &1, U32 & String, String>, +dflt: U32)
       Main.env.u32.maybe(U32.read(value), dflt)
 
 
-
-# ---- configuration ---------------------------------------------------
-# Read from the environment so one binary can render any frame at any size:
-# recompiling between benchmark runs would put the compiler in the timing.
-
 def Main.env.u32(name: String, +dflt: U32) -> IO(U32):
   do IO<U32>:
     r : Result<&1, &1, U32 & String, String> <- IO.get_env(name)
     Main.env.u32.pick(r, dflt)
 
 
-def Main.wrote(f: File, r: Result<&1, &1, U32 & String, Unit>) -> IO(Unit):
+# An unset variable is None rather than a default, so the driver can tell "the
+# caller wants the demo's own value" from "the caller pinned this one".
+def Main.env.f32.opt.pick(r: Result<&1, &1, U32 & String, String>)
+  -> IO(Maybe<&2, F32>):
   match r:
     case Fail{e}:
-      IO.print_err("bend-night-train: write failed\n")
+      IO.pure(Maybe<&2, F32>, None{})
     case Done{value}:
-      File.close(f)
+      IO.pure(Maybe<&2, F32>, F32.read(value))
 
 
+def Main.env.f32.opt(name: String) -> IO(Maybe<&2, F32>):
+  do IO<Maybe<&2, F32>>:
+    r : Result<&1, &1, U32 & String, String> <- IO.get_env(name)
+    Main.env.f32.opt.pick(r)
 
 
-def Main.save.done(fr: File & Result<&1, &1, U32 & String, Unit>) -> IO(Unit):
+def Main.f32.or.else(m: Maybe<&2, F32>, +dflt: F32) -> F32:
+  match m:
+    case None{}:
+      dflt
+    case Some{v}:
+      v
+
+
+# ---- writing ---------------------------------------------------------
+# File.write hands back the handle beside a Result, so the two are unpacked in
+# a def of their own: a destructuring let is not a statement in a do block.
+def Main.err.out(f: File) -> IO(File):
+  do IO<File>:
+    IO.print_err("bend-night-train: write failed\n")
+    IO.pure(File, f)
+
+
+def Main.wrote.r(f: File, r: Result<&1, &1, U32 & String, Unit>) -> IO(File):
+  match r:
+    case Fail{e}:
+      Main.err.out(f)
+    case Done{value}:
+      IO.pure(File, f)
+
+
+def Main.file.of(fr: File & Result<&1, &1, U32 & String, Unit>) -> IO(File):
   (f, r) = fr
-  Main.wrote(f, r)
+  Main.wrote.r(f, r)
 
 
-
-
-def Main.save(path: String, +data: String) -> IO(Unit):
-  do IO<Unit>:
-    f : File <- IO.try(File, File.open(path, "w"))
-    fr : File & Result<&1, &1, U32 & String, Unit> <- File.write(f, data)
-    Main.save.done(fr)
-
-
-
-def Px.show(+c: U32) -> String:
-  U32.show(Color.red(c)) ++ " " ++ U32.show(Color.green(c)) ++ " "
-    ++ U32.show(Color.blue(c)) ++ "\n"
-
-
-
-
-# One row of a 2^d x 2^d image.  `up` says whether the row falls in the top
-# half; it has to be a parameter because a match may only scrutinise a
-# parameter, and the def has to recurse into itself rather than into a
-# helper, because Bend rejects mutual recursion.
-def Px.row(+d: Nat, img: Image, +y: U32, up: Bool, +half: U32) -> String:
-  match d:
-    case 0n:
-      match img:
-        case Pix{c}:
-          Px.show(c)
-        case Qua{tl, tr, bl, br}:
-          ""
-    case 1n+e:
-      match img:
-        case Pix{c}:
-          ""
-        case Qua{tl, tr, bl, br}:
-          match up:
-            case True{}:
-              +h2 = U32.shrn(half, 1n)
-              +up2 = U32.is_lt(y, h2)
-              a b = Px.row(e, tl, y, up2, h2) Px.row(e, tr, y, up2, h2)
-              a ++ b
-            case False{}:
-              +h2 = U32.shrn(half, 1n)
-              +yy = (y - half : U32)
-              +up2 = U32.is_lt(yy, h2)
-              a b = Px.row(e, bl, yy, up2, h2) Px.row(e, br, yy, up2, h2)
-              a ++ b
-
-
-
-
-def Px.rows.line(+d: Nat, img: Image, +y: U32) -> String:
-  +half = U32.shrn(U32.shln(1, d), 1n)
-  Px.row(d, img, y, U32.is_lt(y, half), half)
-
-
-
-
-# Rows are emitted last-to-first with each one prepended, which costs
-# O(width) per row; appending forward would copy the whole prefix every time.
-def Px.rows(+d: Nat, +img: Image, +i: Nat, +acc: String) -> String:
+# The countdown writes the image's top row first: the tree's `y` grows
+# downward from the top of the screen, so row y is (width - 1) - k.
+def Main.rows(+i: Nat, +d: Nat, +w: U32, +fr: Raster.Frame, f: File)
+  -> IO(Unit):
   match i:
     case 0n:
-      Px.rows.line(d, img, 0) ++ acc
-    case 1n+p:
-      +k = U32.add(U32.from_nat(p), 1)
-      Px.rows(d, img, p, Px.rows.line(d, img, k) ++ acc)
+      File.close(f)
+    case 1n+k:
+      do IO<Unit>:
+        fr2 : File & Result<&1, &1, U32 & String, Unit> <-
+          File.write(f, Raster.Raster.text.row(d, fr,
+            U32.sub(U32.sub(w, 1), U32.from_nat(k))))
+        g : File <- Main.file.of(fr2)
+        Main.rows(k, d, w, fr, g)
 
 
-def Main.maybe_save(write: Bool, +d: Nat, img: Image, path: String)
+def Main.header(f: File, +w: U32, +d: Nat, +fr: Raster.Frame) -> IO(Unit):
+  do IO<Unit>:
+    fr2 : File & Result<&1, &1, U32 & String, Unit> <-
+      File.write(f, "P3\n" ++ U32.show(w) ++ " " ++ U32.show(w) ++ "\n255\n")
+    g : File <- Main.file.of(fr2)
+    Main.rows(U32.to_nat(w), d, w, fr, g)
+
+
+# The open is its own def, and the width is computed at the call: a do block
+# inside a match arm does not parse, and a do block wants a bind before a let.
+def Main.save(+d: Nat, +fr: Raster.Frame, path: String, +w: U32) -> IO(Unit):
+  do IO<Unit>:
+    f : File <- IO.try(File, File.open(path, "w"))
+    Main.header(f, w, d, fr)
+
+
+def Main.save.maybe(write: Bool, +d: Nat, +fr: Raster.Frame, path: String)
   -> IO(Unit):
   match write:
     case True{}:
-      +w = U32.shln(1, d)
-      Main.save(path, "P3\n" ++ U32.show(w) ++ " " ++ U32.show(w) ++ "\n255\n"
-        ++ Px.rows(d, img, Nat.sub(U32.to_nat(w), 1n), ""))
+      Main.save(d, fr, path, U32.shln(1, d))
     case False{}:
       IO.pure(Unit, Unit{})
 
 
+# ---- the scene -------------------------------------------------------
+# The three meshes the reference draws as instanced or per-vertex geometry.
+# The consist is built once, not once per car: `cars()` rebuilds the four
+# carriage meshes every call.
+def Main.tris(+s: F32) -> List<&2, Geo.WTri>:
+  +cars = Carriage.Carriage.cars()
+  List.append(&2, Geo.WTri,
+    List.append(&2, Geo.WTri, World.World.emit(s, []), Inst.Inst.emit(s, [])),
+    Carriage.Carriage.all(s, cars, []))
 
 
 # ---- driver ----------------------------------------------------------
-
-# A match may only scrutinise a parameter and no let may precede it, so
-# `bang` leads the parameter list and the setup is repeated in both arms.
-def Main.render(+bang: Bool, +d: Nat, +s: F32, +side: F32) -> Image:
-  match bang:
-    case True{}:
-      +w = U32.shln(1, d)
-      +cam = Scene.Cam.fit(w, w, Scene.Cam.ride(s, side, 3.05, 0.0, (0.0 - 0.02 : F32)))
-      +cars = Scene.consist(s)
-      +head = Scene.Head.pos(s)
-      +wins = Scene.Wins(s)
-      Scene.frame!(d, 0, 0, cam, cars, head, wins)
-    case False{}:
-      +w = U32.shln(1, d)
-      +cam = Scene.Cam.fit(w, w, Scene.Cam.ride(s, side, 3.05, 0.0, (0.0 - 0.02 : F32)))
-      +cars = Scene.consist(s)
-      +head = Scene.Head.pos(s)
-      +wins = Scene.Wins(s)
-      Scene.frame(d, 0, 0, cam, cars, head, wins)
-
-
-
-
-# ---- checksum --------------------------------------------------------
-# An order-independent digest of the framebuffer: every leaf contributes an
-# avalanche-mixed hash of its packed pixel and the tree folds them with a
-# wrapping sum.  Addition commutes, so a flipped or transposed frame hashes
-# the same -- a cheap equality test for a render against itself, not a
-# fingerprint of the picture.
-#
-# The fold has to be a sum, not an XOR.  The first version XOR-ed the four
-# quadrant sub-folds, which let them cancel: three materially different builds
-# produced one checksum, so the gate that is supposed to catch a changed frame
-# stayed quiet.  Summing mixed per-pixel hashes cannot cancel; what is left is
-# the ordinary 2^-32 collision, which is fine for an equality test.
-
-def Px.hash1(+c: U32) -> U32:
-  +x = U32.mul(U32.xor(c, 2246822519), 2654435761)
-  U32.xor(x, U32.shrn(x, 15n))
-
-
-def Px.checksum(+d: Nat, +img: Image, +acc: U32) -> U32:
-  match d:
-    case 0n:
-      match img:
-        case Pix{c}:
-          U32.add(acc, Px.hash1(c))
-        case Qua{tl, tr, bl, br}:
-          0
-    case 1n+e:
-      match img:
-        case Pix{c}:
-          0
-        case Qua{tl, tr, bl, br}:
-          a b = Px.checksum(e, tl, acc) Px.checksum(e, tr, acc)
-          c dd = Px.checksum(e, bl, a) Px.checksum(e, br, b)
-          U32.add(c, dd)
-
-
-
 def Main.frame(+path: String) -> IO(Unit):
   do IO<Unit>:
-    depth : U32 <- Main.env.u32("NT_DEPTH", 8)
+    depth : U32 <- Main.env.u32("NT_DEPTH", 10)
     ppm : U32 <- Main.env.u32("NT_PPM", 1)
-    side : F32 <- Main.env.f32("NT_SIDE", 4.6)
-    s : F32 <- Main.env.f32("NT_S", 0.0)
-    bang : U32 <- Main.env.u32("NT_BANG", 1)
+    s0 : F32 <- Main.env.f32("NT_S", 110.0)
+    t0 : F32 <- Main.env.f32("NT_T", 0.0)
+    head : U32 <- Main.env.u32("NT_HEAD", 1)
+    motion : U32 <- Main.env.u32("NT_MOTION", 1)
+    yaw0 : Maybe<&2, F32> <- Main.env.f32.opt("NT_YAW")
+    pitch0 : Maybe<&2, F32> <- Main.env.f32.opt("NT_PITCH")
+    # a value bound by `<-` is linear, so the two that are read more than once
+    # are duplicated into a `+` binder before use
+    +s : F32 = s0
+    +t : F32 = t0
+    +mo : Bool = U32.is_eq(motion, 1)
     +d : Nat = U32.to_nat(depth)
-    +img : Image = Main.render(U32.is_eq(bang, 1), d, s, side)
-    IO.print(U32.show(Px.checksum(d, img, 0)) ++ "\n")
-    Main.maybe_save(U32.is_eq(ppm, 1), d, img, path)
-
+    +side : F32 = Ride.Ride.side(t, mo)
+    # NT_YAW/NT_PITCH pin the head; without them the demo's auto-look decides
+    # the yaw and the converged pitch (0.012) is used.
+    +yaw : F32 = Main.f32.or.else(yaw0, Ride.Ride.yaw(s, t, mo))
+    +pitch : F32 = Main.f32.or.else(pitch0, Ride.Ride.pitch(t, mo))
+    +ws : List<&2, Geo.WTri> = Main.tris(s)
+    +lts : Shade.Lights = Ride.Ride.lights(s)
+    +fr : Raster.Frame = Raster.Raster.frame(d, s, side, Ride.Ride.hgt(t, mo),
+      yaw,
+      pitch, ws, lts, [], t, U32.is_eq(head, 1))
+    IO.print(U32.show(Raster.Raster.digest(d, fr)) ++ "\n")
+    Main.save.maybe(U32.is_eq(ppm, 1), d, fr, path)
 
 
 def main() -> IO(Unit):

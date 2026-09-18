@@ -7,7 +7,9 @@ this tool renders a *patched copy* of ``reference/night-train-webgl.html``
 (never the original) with two changes:
 
   1. a seeded PRNG replaces ``Math.random`` before the demo script runs, so
-     every particle, mote and smoke seed is identical on every run; and
+     every particle, mote and smoke seed is identical on every run.  The
+     generator mirrors the demo's own LCG (its star field), ``--seed``
+     selects it and defaults to 7; and
   2. a ``window.__nt`` hook is appended inside the demo's IIFE that stops the
      rAF loop, writes the requested camera state, draws a single frame at
      ``dt = 0`` and returns ``canvas.toDataURL('image/png')``.
@@ -40,6 +42,9 @@ The CLI flags map one-to-one onto the reference's own ``state`` fields:
                                      (off) by default so the camera is a still
   --quality high|low -> state.quality
                                      scene density (tree count, detail step)
+  --seed N           -> Math.random PRNG seed (default 7).  The same seed
+                                     reproduces the same particle fields; a
+                                     different seed yields a different frame.
 
 The demo's own defaults are ``s=110, lean=1, yaw=0, pitch=-0.02, motion=true``
 with ``quality`` auto.  A square frame is used because the demo picks
@@ -49,6 +54,7 @@ Usage::
 
   tools/render_reference.py --out out/ref.png --s 110 --lean 1 --info
   tools/render_reference.py --out out/ref.png --size 512 --quality low
+  tools/render_reference.py --out out/ref.png --seed 7
 """
 
 from __future__ import annotations
@@ -63,28 +69,35 @@ import tempfile
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 REFERENCE = ROOT / "reference" / "night-train-webgl.html"
 
-# Fixed seed: the render is only reproducible if the particle fields are.
-SEED = 0x9E3779B9
+# Default PRNG seed: the render is only reproducible if the particle fields
+# are.  Overridable with --seed.
+DEFAULT_SEED = 7
 
 # Injected before the demo's own <script>, so the seeding happens before the
-# demo builds its motes/smoke arrays.
+# demo builds its motes/smoke arrays.  This mirrors the demo's own generator
+# (its star field, reference HTML lines 831-845):
+#
+#   state = (state * 1103515245 + 12345) & 0x7fffffff
+#
+# The product exceeds 2**53, so it is computed exactly from the low 32 bits
+# with Math.imul (the +12345 stays well inside the exact-integer range) and
+# the ``&`` is exact 32-bit arithmetic.  The result is divided by 2**31 rather
+# than 2**31-1 so it lies in [0,1) as Math.random() requires, without changing
+# the exact modulus.
 SEED_SCRIPT = """
 <script>
 // Seeded PRNG installed before the demo script: every Math.random() call in
 // the demo (motes, smoke, reset positions) must be reproducible.
 (function(){
-  var a = %d >>> 0;
+  var state = %d & 0x7fffffff;
   Math.random = function(){
-    a = (a + 0x6D2B79F5) >>> 0;
-    var t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    state = (Math.imul(state, 1103515245) + 12345) & 0x7fffffff;
+    return state / 0x80000000;
   };
 })();
 </script>
 <script>
-""" % SEED
+"""
 
 # Appended inside the demo's IIFE, replacing the line that would start the rAF
 # loop.  `rafId=0` at the end of frame() is handled by the other replacement.
@@ -123,11 +136,11 @@ window.__nt = {
 """
 
 
-def patch(html: str) -> str:
+def patch(html: str, seed: int) -> str:
     """Return the demo HTML with the seeded PRNG and the __nt hook installed."""
     if "<script>" not in html:
         raise SystemExit("reference HTML: no <script> tag found")
-    seeded = html.replace("<script>", SEED_SCRIPT, 1)
+    seeded = html.replace("<script>", SEED_SCRIPT % seed, 1)
 
     # frame() must not re-arm the loop; it used to schedule the next frame.
     if "rafId=requestAnimationFrame(frame);" not in seeded:
@@ -151,6 +164,8 @@ def main(argv: list[str]) -> int:
     ap.add_argument("--pitch", type=float, default=-0.02, help="state.pitch (head pitch, rad)")
     ap.add_argument("--t", type=float, default=0.0, help="state.t (animation clock, s)")
     ap.add_argument("--size", type=int, default=1024, help="square frame size, px")
+    ap.add_argument("--seed", type=int, default=DEFAULT_SEED,
+                    help="PRNG seed for the demo's Math.random (default: %d)" % DEFAULT_SEED)
     ap.add_argument("--motion", dest="motion", action="store_true", default=False,
                     help="keep sway/bob on (default: frozen, no motion)")
     ap.add_argument("--no-motion", dest="motion", action="store_false",
@@ -171,7 +186,7 @@ def main(argv: list[str]) -> int:
 
     if not REFERENCE.is_file():
         raise SystemExit(f"render_reference: missing {REFERENCE}")
-    patched = patch(REFERENCE.read_text(encoding="utf-8"))
+    patched = patch(REFERENCE.read_text(encoding="utf-8"), args.seed)
 
     out = pathlib.Path(args.out).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
