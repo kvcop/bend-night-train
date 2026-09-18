@@ -83,6 +83,7 @@ NT_DEPTH=10 NT_S=150 NT_SIDE=4.6 NT_PPM=0 ./out/night-train --threads 8
 | `docs/language-notes.md` | справочник по языку, всё проверено запуском |
 | `docs/reference-demo-spec.md` | что делает оригинальная демка, до констант |
 | `docs/journal.md` | хронология: что сломалось и как починили |
+| `docs/base-2.0.5.txt` | дамп `bend base` для версии 2.0.5 — справочник по API |
 | `tools/order.py` | топологическая сортировка `def`: порядок объявлений обязателен |
 | `tools/ppm2png.py` | PPM → PNG без библиотек |
 | `bench/` | драйвер бенчмарков и точный измеритель |
