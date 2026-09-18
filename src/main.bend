@@ -197,12 +197,16 @@ def Main.render(+bang: Bool, +d: Nat, +s: F32, +side: F32) -> Image:
       +w = U32.shln(1, d)
       +cam = Scene.Cam.fit(w, w, Scene.Cam.ride(s, side, 3.05, 0.0, 0.0))
       +cars = Scene.consist(s)
-      Scene.frame!(d, 0, 0, cam, cars)
+      +head = Scene.Head.pos(s)
+      +wins = Scene.Wins(s)
+      Scene.frame!(d, 0, 0, cam, cars, head, wins)
     case False{}:
       +w = U32.shln(1, d)
       +cam = Scene.Cam.fit(w, w, Scene.Cam.ride(s, side, 3.05, 0.0, 0.0))
       +cars = Scene.consist(s)
-      Scene.frame(d, 0, 0, cam, cars)
+      +head = Scene.Head.pos(s)
+      +wins = Scene.Wins(s)
+      Scene.frame(d, 0, 0, cam, cars, head, wins)
 
 
 
