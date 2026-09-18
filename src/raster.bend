@@ -433,6 +433,22 @@ def Pk(rgb: Shade.RGB) -> U32:
   Color.pack(r, g, b)
 
 
+# The mean of four channel values, rounded to nearest.  F32 would work too, but
+# the samples are already unorm8 and the integer form is exact, so the average
+# of four identical samples returns the value it started with.
+def Px.q(+a: U32, +b: U32, +c: U32, +d: U32) -> U32:
+  U32.shrn(U32.add(U32.add(a, b), U32.add(U32.add(c, d), 2)), 2n)
+
+
+def Px.avg4(+a: U32, +b: U32, +c: U32, +d: U32) -> U32:
+  U32.or(
+    U32.shln(Px.q(Color.red(a), Color.red(b), Color.red(c), Color.red(d)), 16n),
+    U32.or(
+      U32.shln(Px.q(Color.green(a), Color.green(b), Color.green(c),
+        Color.green(d)), 8n),
+      Px.q(Color.blue(a), Color.blue(b), Color.blue(c), Color.blue(d))))
+
+
 # ---- one pixel -------------------------------------------------------
 def Tile.px.shade(+iw: F32, frag: Rt.Frag, +fx: F32, +fy: F32,
   ss: List<&2, Rt.Spr>, env: Env) -> U32:
@@ -454,11 +470,39 @@ def Tile.px.at(best: Best, +fx: F32, +fy: F32, ss: List<&2, Rt.Spr>, env: Env)
       Tile.px.shade(iw, frag, fx, fy, ss, env)
 
 
-def Tile.px(+px: U32, +py: U32, tris: List<&2, Rt.Tri>, ss: List<&2, Rt.Spr>,
-  env: Env) -> U32:
-  +fx = (U32.to_f32(px) + 0.5 : F32)
-  +fy = (U32.to_f32(py) + 0.5 : F32)
+# One sample, at the pixel's origin plus an offset.
+def Tile.px.s(+x: F32, +y: F32, +dx: F32, +dy: F32, +tris: List<&2, Rt.Tri>,
+  +ss: List<&2, Rt.Spr>, +env: Env) -> U32:
+  +fx = (x + dx : F32)
+  +fy = (y + dy : F32)
   Tile.px.at(Tri.best(tris, fx, fy, Bnil{}), fx, fy, ss, env)
+
+
+# A pixel is four samples on its quadrant centres, averaged.
+#
+# The demo asks WebGL for `antialias: true`, which is 4x MSAA, and the reference
+# frame carries the sub-pixel coverage that comes with it.  Sampling the pixel
+# centre alone, which is what this did, leaves every geometric edge hard: pixels
+# within two of an edge carry about two thirds of the frame's error against the
+# reference, while the geometry itself is already in the right place -- an
+# integer-shift search across the strong edges moves them by nothing.  Four
+# quadrant samples resolve an edge to the same five coverage levels 4x MSAA
+# does, and for the same reason: what an edge pixel is missing is not a better
+# sample position but more of them.
+#
+# Costing four samples per pixel is affordable here only because the per-pixel
+# pass is a small part of a frame -- about 50 ns a pixel against a fixed scene
+# cost of a tenth of a second -- so doubling the image's accuracy quadruples the
+# smaller term.
+def Tile.px(+px: U32, +py: U32, +tris: List<&2, Rt.Tri>, +ss: List<&2, Rt.Spr>,
+  +env: Env) -> U32:
+  +x = U32.to_f32(px)
+  +y = U32.to_f32(py)
+  Px.avg4(
+    Tile.px.s(x, y, 0.25, 0.25, tris, ss, env),
+    Tile.px.s(x, y, 0.75, 0.25, tris, ss, env),
+    Tile.px.s(x, y, 0.25, 0.75, tris, ss, env),
+    Tile.px.s(x, y, 0.75, 0.75, tris, ss, env))
 
 
 # Rows and tiles are filled bottom-up and right-to-left, so consing as the
@@ -585,61 +629,135 @@ def Raster.frame.chunks(+d: Nat, +s: F32, +side: F32, +hgt: F32, +yaw: F32,
 # row out of each tile the row crosses: the walk stops at the tile instead of
 # at the pixel, and only the leaf knows the stride.
 #
-# The row comes back as text rather than as a list.  Appending one pixel at a
-# time to a growing string costs the square of the row, and the row is up to
-# 1024 pixels wide; splitting the work in half at every level -- the two
-# children each return their own text and the parent concatenates -- keeps it
-# at w log w.  The only place a list is appended to is the eight-pixel leaf.
-def Px.show(+c: U32) -> String:
-  U32.show(Color.red(c)) ++ " " ++ U32.show(Color.green(c)) ++ " "
-    ++ U32.show(Color.blue(c)) ++ "\n"
+# A pixel's text.  Color.ch clamps every channel to 0..255, so three cases
+# cover a channel exactly and the digits are consed straight onto the rest of
+# the pixel -- no channel string is built and then copied by `++`, and no
+# counter walks ten digits to find two.  Going through U32.show instead costs
+# about four times as much per pixel, which the live view pays on every pixel
+# of every frame.
+#
+# The two comparisons are passed in as parameters because a match may only
+# scrutinise one, and `v` is duplicable because every arm reads it.
+def Px.dig.one(+v: U32, tail: String) -> String:
+  SCon{Chr{U32.add(48, v)}, tail}
 
 
-def Tile.text(xs: List<&2, U32>, +acc: String) -> String:
+def Px.dig.two(+v: U32, tail: String) -> String:
+  SCon{Chr{U32.add(48, U32.div(v, 10))}, Px.dig.one(U32.mod(v, 10), tail)}
+
+
+def Px.dig.three(+v: U32, tail: String) -> String:
+  SCon{Chr{U32.add(48, U32.div(v, 100))}, Px.dig.two(U32.mod(v, 100), tail)}
+
+
+def Px.dig(+h3: Bool, +h2: Bool, +v: U32, tail: String) -> String:
+  match h3:
+    case True{}:
+      Px.dig.three(v, tail)
+    case False{}:
+      match h2:
+        case True{}:
+          Px.dig.two(v, tail)
+        case False{}:
+          Px.dig.one(v, tail)
+
+
+def Px.digits(+v: U32, tail: String) -> String:
+  Px.dig(U32.is_ge(v, 100), U32.is_ge(v, 10), v, tail)
+
+
+# `tail` is what follows the pixel's own text, so a tile's pixels can be strung
+# together in one right-to-left pass: each pixel conses its characters onto the
+# text of the pixels after it, and nothing is ever copied.  Building a string
+# per pixel and joining them afterwards -- List.reverse plus String.concat, the
+# obvious way -- allocates about twice as many cons cells for the same bytes,
+# and the live view pays that on every pixel of every frame.
+def Px.show(+c: U32, tail: String) -> String:
+  Px.digits(Color.red(c),
+    SCon{Chr{32}, Px.digits(Color.green(c),
+      SCon{Chr{32}, Px.digits(Color.blue(c),
+        SCon{Chr{10}, tail})} )})
+
+
+# A tile's eight pixels, then whatever follows them.  The pixels are consumed
+# from the left while their text is built from the right, so the recursive call
+# is the argument that carries the rest of the row and each pixel conses
+# straight onto it.
+def Tile.text(+xs: List<&2, U32>, tail: String) -> String:
   match xs:
     case []:
-      acc
+      tail
     case h <> rest:
-      Tile.text(rest, acc ++ Px.show(h))
+      Px.show(h, Tile.text(rest, tail))
 
 
+# A row leaves the tree as its tile strings, left to right -- not as one string.
+# Joining the two halves with `++` at every level, which is the obvious way to
+# write it, rebuilds the whole row once per level: nine copies of a 512-pixel
+# row per scanline, 27 MB of cons cells per frame, and that concatenation was
+# three times the cost of rendering the frame.  Handing back the pieces costs
+# only the list spine, and the two callers below each pay for one copy of the
+# row's text and no more.
+#
 # `half` is the pixel height of one child, so `top` says which pair of children
 # the row falls through; both are parameters because a match may only inspect a
 # parameter and no let may precede it.
-def Frame.text(+k: Nat, fr: Frame, +y: U32, +half: U32, top: Bool) -> String:
+def Frame.texts(+k: Nat, fr: Frame, +y: U32, +half: U32, top: Bool)
+  -> List<&2, String>:
   match k:
     case 0n:
       match fr:
         case Tile{px}:
-          Tile.text(List.take(&2, U32,
+          [Tile.text(List.take(&2, U32,
             List.drop(&2, U32, px,
               U32.to_nat(U32.mul(y, U32.from_nat(Tile.side())))),
-            Tile.side()), "")
+            Tile.side()), "")]
         case Quad{a, b, c, d}:
-          ""
+          []
     case 1n+e:
       match fr:
         case Tile{px}:
-          ""
+          []
         case Quad{a, b, c, d}:
           match top:
             case True{}:
               +h2 = U32.shrn(half, 1n)
               +up = U32.is_lt(y, h2)
-              ra rb = Frame.text(e, a, y, h2, up) Frame.text(e, b, y, h2, up)
-              ra ++ rb
+              List.append(&2, String, Frame.texts(e, a, y, h2, up),
+                Frame.texts(e, b, y, h2, up))
             case False{}:
               +h2 = U32.shrn(half, 1n)
               +yy = (y - half : U32)
               +up = U32.is_lt(yy, h2)
-              rc rd = Frame.text(e, c, yy, h2, up) Frame.text(e, d, yy, h2, up)
-              rc ++ rd
+              List.append(&2, String, Frame.texts(e, c, yy, h2, up),
+                Frame.texts(e, d, yy, h2, up))
+
+
+def Raster.row.tiles(+d: Nat, fr: Frame, +y: U32) -> List<&2, String>:
+  +w = U32.shln(1, d)
+  +half = U32.shrn(w, 1n)
+  Frame.texts(Nat.tile.levels(d), fr, y, half, U32.is_lt(y, half))
 
 
 def Raster.text.row(+d: Nat, fr: Frame, +y: U32) -> String:
-  +w = U32.shln(1, d)
-  +half = U32.shrn(w, 1n)
-  Frame.text(Nat.tile.levels(d), fr, y, half, U32.is_lt(y, half))
+  String.concat(Raster.row.tiles(d, fr, y))
+
+
+# The live view's row: the same pieces, written one at a time.  A tile's text
+# goes straight to stdout, so the row is never assembled -- the concatenation
+# above would copy it, which is the cost this exists to avoid.
+def Raster.emit.tiles(ts: List<&2, String>) -> IO(Unit):
+  match ts:
+    case []:
+      IO.pure(Unit, Unit{})
+    case h <> rest:
+      do IO<Unit>:
+        IO.write(h)
+        Raster.emit.tiles(rest)
+
+
+def Raster.emit.row(+d: Nat, fr: Frame, +y: U32) -> IO(Unit):
+  Raster.emit.tiles(Raster.row.tiles(d, fr, y))
 
 
 # ---- checksum --------------------------------------------------------

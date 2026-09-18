@@ -25,3 +25,6 @@
 *.swp
 .idea/
 .vscode/
+
+# Python bytecode from the tools
+__pycache__/
