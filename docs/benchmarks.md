@@ -12,7 +12,7 @@ commands in the text. Raw data: `bench/results.csv` (54 runs).
 | CPU | Intel Core i9-14900HX, 24 physical cores |
 | Logical CPUs | 32 (`nproc` → 32), two hardware threads per core (SMT) |
 | RAM | 125 GiB |
-| CPU scaling | `intel_pstate` active, turbo enabled, frequency not pinned |
+| CPU scaling | `intel_pstate`, governor `performance` for the sweep (the host idles on `powersave`), turbo enabled, frequency not pinned |
 | clang | 18.1.3 |
 | Bend | 2.0.5, launched through `tools/bend` |
 | Workload | `src/main.bend` — the rasteriser: a four-way parallel quadtree walk, one tile of pixels per leaf |
@@ -103,6 +103,6 @@ parallelism correctness check: the picture does not depend on the walk order.
 - `/usr/bin/time %e` prints centiseconds, so every wall and user figure carries a 10 ms quantum. At depth 8 with one thread (0.36 s) that is about 3% of the number, and smaller differences are not resolved.
 - Three reps per cell, median only. No spread or confidence interval is reported.
 - The 32 logical CPUs are 24 physical cores under SMT. Thread counts above 16 land on hardware threads, not on extra cores, so part of the curve above 16 is SMT, not more silicon.
-- `intel_pstate` is active with turbo enabled and the clock is not pinned, so wall time depends on the boost and thermal state around each run. The medians reduce this but do not remove it. The sweep was taken on an otherwise quiet host; no contended run is published here.
+- The scaling governor was set to `performance` before the sweep, since the host idles on `powersave` and a short frame is exactly where the governor's ramping shows up. The numbers are therefore not directly comparable with runs taken at the idle setting. Turbo is still enabled and the clock is not pinned, so wall time depends on the boost and thermal state around each run; the medians reduce this but do not remove it. The sweep was taken on an otherwise quiet host; no contended run is published here.
 - Wall time includes fixed per-process cost (start-up, binary load, geometry projection), not only the tile loop. `NT_PPM=0` removes PPM file I/O, so the figure is a whole program run, not a rasteriser kernel time.
 - One host, one compiler, one build, one scene. There is no second backend or compiler to compare against.
