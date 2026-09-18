@@ -161,9 +161,9 @@ pixel is a pure function of the pixel, and the first laws were stated on it.
 
 ## What it cost
 
-Two AI-assisted passes produced this repository — the ray marcher on a DeepSeek
-harness, then the rasteriser on this branch with Claude Code. The recorded spend
-for both together is **≈ $6.95**.
+Two AI-assisted passes produced this repository, both on **DeepSeek Flash V4.1**:
+the ray marcher on a DeepSeek harness, then the rasteriser on this branch with
+Claude Code. The recorded spend for both together is **≈ $6.95**.
 
 ## License
 
