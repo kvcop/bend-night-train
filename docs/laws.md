@@ -1,20 +1,22 @@
-# Законы: что в Bend 2 реально доказуемо
+*English | [Русский](ru/laws.md)*
 
-`LAWS.bend` — утверждения, `PROOF.bend` — доказательства, `bend PROOF.bend` —
-ворота. Они проходят и печатают `All terms check.` за 0.25–0.34 с.
+# Laws: what is actually provable in Bend 2
+
+`LAWS.bend` holds the statements, `PROOF.bend` the proofs, `bend PROOF.bend` the
+gate. They pass and print `All terms check.` in 0.25–0.34 s.
 
 ```sh
 ./tools/bend PROOF.bend
 # All terms check.
 ```
 
-Этот текст — отчёт о том, где проходит граница доказуемого и почему.
-Граница оказалась не там, где я ожидал: она проходит не между «сложным» и
-«простым», а между **структурой и числами**.
+This text is a report on where the boundary of the provable runs and why. The
+boundary turned out not to be where I expected: it runs not between "complex"
+and "simple", but between **structure and numbers**.
 
-## 1. Что доказано
+## 1. What is proved
 
-### `consist_slots` — индексная последовательность состава ровно длины k
+### `consist_slots` — the consist's index sequence has exactly length k
 
 ```python
 law consist_slots:
@@ -22,10 +24,10 @@ law consist_slots:
   {List.length(&2, Nat, Scene.slots(k)) == k : Nat}
 ```
 
-Состав строится обходом `Scene.slots(k)` — списка `[k-1, …, 1, 0]`. Геометрия
-вагона — это F32 и недоказуема (см. §2), но **ошибка на единицу в числе
-вагонов** — проверяемая. Доказательство — индукция по `k`; шаг держится на
-том, что `List.length` от cons по определению равен `1n + length(tail)`:
+The consist is built by walking `Scene.slots(k)`, the list `[k-1, …, 1, 0]`. A
+carriage's geometry is F32 and unprovable (see §2), but **an off-by-one in the
+carriage count** is checkable. The proof is induction on `k`; the step rests on
+the fact that `List.length` of a cons is by definition `1n + length(tail)`:
 
 ```python
 def Laws.consist_slots(k):
@@ -38,11 +40,11 @@ def Laws.consist_slots(k):
       {==}
 ```
 
-Ради этого закона `Scene.consist` пришлось разрезать на
-`Scene.slots` (числа) и `Scene.consist.list` (геометрия). Это не косметика:
-пока индексы и синусы жили в одной функции, утверждение было невыразимо.
+For this law `Scene.consist` had to be split into `Scene.slots` (numbers) and
+`Scene.consist.list` (geometry). This is not cosmetic: while the indices and the
+sines lived in one function, the statement was inexpressible.
 
-### `quad_pixels` — четырёхдорожечный параллельный сплит ничего не теряет
+### `quad_pixels` — the four-way parallel split loses nothing
 
 ```python
 law quad_pixels:
@@ -53,40 +55,40 @@ law quad_pixels:
   {Shape.leaves(Qua{a, b, c, e}) == Nat.add(Shape.leaves(a), …) : Nat}
 ```
 
-Доказывается рефлексивностью (`{==}`) — это буквально определение
-`Shape.leaves`. Ценность не в глубине, а в том, что закон сторожит **место
-разреза**: `Qua{a,b,c,e}` — это ровно тот узел, который строит параллельный
-вызов `a b c e = frame(...) frame(...) frame(...) frame(...)`. Если кто-то
-перепутает порядок или потеряет ветку при рефакторинге, закон сломается.
+It is proved by reflexivity (`{==}`): this is literally the definition of
+`Shape.leaves`. The value is not in the depth but in the fact that the law guards
+**the cut point**: `Qua{a,b,c,e}` is exactly the node that the parallel call
+`a b c e = frame(...) frame(...) frame(...) frame(...)` builds. If someone swaps
+the order or drops a branch during a refactor, the law breaks.
 
-### `frame8` — кадр 8×8 это ровно 64 луча
+### `frame8` — an 8×8 frame is exactly 64 rays
 
 ```python
 law frame8:
   {Shape.leaves(Shape.frame(3n)) == 64n : Nat}
 ```
 
-Проверяется вычислением: чекер разворачивает квадродерево глубины 3 в 64
-листа и считает их.
+It is checked by evaluation: the checker unfolds the depth-3 quadtree into 64
+leaves and counts them.
 
-### Ворота действительно закрыты
+### The gate really is closed
 
-Проверено отрицательным тестом: если в копии `LAWS.bend` заменить
-`Shape.frame(3n)` на `Shape.frame(2n)`, чекер не пропускает.
+Checked with a negative test: if in a copy of `LAWS.bend` you replace
+`Shape.frame(3n)` with `Shape.frame(2n)`, the checker rejects it.
 
 ```
-$ ./tools/bend .probe-lang/neg/PROOF_bad.bend
+$ ./tools/bend probes/neg/PROOF_bad.bend
 Error:
 - expected : 16n
 - observed : 64n
 Location: LAWS_bad.frame8
 ```
 
-## 2. Чего доказать нельзя
+## 2. What cannot be proved
 
-### F32 непрозрачен
+### F32 is opaque
 
-Попробуем самый простой закон про числа с плавающей точкой:
+Let us try the simplest law about floating-point numbers:
 
 ```python
 law f32_add_zero:
@@ -95,7 +97,7 @@ law f32_add_zero:
 ```
 
 ```
-$ ./tools/bend .probe-lang/limits/PROOF_f32.bend
+$ ./tools/bend probes/limits/PROOF_f32.bend
 Error:
 - expected : F32.add(x, 0.0)
 - observed : x
@@ -103,8 +105,8 @@ Context:
 - x : F32
 ```
 
-Причина видна из `bend base F32`: **все** операции над F32 объявлены как
-`law`, а не `def`:
+The reason is visible in `bend base F32`: **all** operations on F32 are declared
+as `law`, not `def`:
 
 ```
 law F32.add:
@@ -113,28 +115,29 @@ law F32.add:
   F32
 ```
 
-У `law` нет тела. Чекер про них ничего не знает и не может ничего упростить,
-кроме буквально одинаковых термов. Значит:
+A `law` has no body. The checker knows nothing about them and cannot simplify
+anything except literally identical terms. So:
 
-- цвет пикселя;
-- положение камеры;
-- значения `trackX/trackY`;
-- «кадр не зависит от числа потоков»;
-- «яркость в границах [0,255]»
+- a pixel's colour;
+- the camera position;
+- the values of `trackX`/`trackY`;
+- "the frame does not depend on the number of threads";
+- "brightness within [0,255]"
 
-— всё это **невыразимо** в текущем Bend 2. Не «сложно доказать», а нельзя
-даже сформулировать как закон. Именно поэтому в `src/` появился
-`src/shape.bend`: законы про кадр сформулированы на его **скелете** — той же
-рекурсии с тем же параллельным вызовом, но с `Pix{0}` вместо цвета.
-Структура — доказуема, пиксели — нет.
+— all of this is **inexpressible** in current Bend 2. Not "hard to prove", but
+impossible even to state as a law. That is precisely why `src/shape.bend`
+appeared in `src/`: the laws about the frame are stated on its **skeleton** — the
+same recursion with the same parallel call, but with `Pix{0}` instead of colour.
+The structure is provable, the pixels are not.
 
-Это подтверждает и официальная демка: `demos/app_ray_tracer_3d/LAWS.bend`
-начинается словами «The F32 scene is not claimed» — авторы языка обошли ровно
-ту же стену.
+The official demo confirms this too: `demos/app_ray_tracer_3d/LAWS.bend` begins
+with the words "The F32 scene is not claimed" — the language's authors ran into
+exactly the same wall.
 
-### Общий закон 4^d упирается в арифметику, которой в Base нет
+### The general 4^d law runs into arithmetic Base does not have
 
-Естественное обобщение `frame8` — «кадр глубины d содержит ровно 4^d лучей»:
+The natural generalisation of `frame8` is "a depth-`d` frame contains exactly
+4^d rays":
 
 ```python
 law frame_pixels:
@@ -142,49 +145,51 @@ law frame_pixels:
   {Shape.leaves(Shape.frame(d)) == Nat.pow(4n, d) : Nat}
 ```
 
-Индукция доходит до шага и останавливается:
+The induction reaches the step and stops:
 
 ```
-$ ./tools/bend .probe-lang/limits/PROOF_gen.bend
+$ ./tools/bend probes/limits/PROOF_gen.bend
 Error:
 - expected : Nat.add(l, Nat.add(l, Nat.add(l, l)))
 - observed : Nat.add(l, Nat.add(l, Nat.add(l, Nat.add(l, 0n))))
 ```
 
-где `l` — это `shape.leaves(shape.frame(p))`. Разница ровно в двух вещах:
-`Nat.add(l, 0n)` не упрощается до `l`, а вложенность скобок разная. То есть не
-хватает двух лемм: `x + 0 = x` и ассоциативности.
+where `l` is `shape.leaves(shape.frame(p))`. The difference is exactly two
+things: `Nat.add(l, 0n)` does not simplify to `l`, and the nesting of the
+parentheses differs. That is, two lemmas are missing: `x + 0 = x` and
+associativity.
 
-В Base их нет: `bend base Nat` показывает определения `add`, `mul`, `pow`,
-`double`, но **ни одной леммы** об их алгебре. Официальный ответ на это —
-демка `demos/proof_numerics`: там заново определяют `add`/`mul` и доказывают
-`add_comm`, `add_assoc`, `mul_comm`, `mul_dist`. Иначе никак: у Bend нет
-тактик, нет поиска переписываний, каждый шаг ассоциативности пишется руками.
+Base does not have them: `bend base Nat` shows the definitions of `add`, `mul`,
+`pow`, `double`, but **not a single lemma** about their algebra. The official
+answer to this is the `demos/proof_numerics` demo: it redefines `add`/`mul` and
+proves `add_comm`, `add_assoc`, `mul_comm`, `mul_dist`. There is no other way:
+Bend has no tactics, no rewrite search, every associativity step is written by
+hand.
 
-Практический вывод для law-driven development: **любая программа, где есть
-арифметика, сначала платит за библиотеку арифметики**. Для нашего рендера это
-означало бы: доказать `x+0=x`, ассоциативность, затем обобщить `frame8` до
-`4^d`. Три закона, которые есть сейчас, этого платежа не требуют — они
-держатся на структуре списка и дерева.
+The practical conclusion for law-driven development: **any program that contains
+arithmetic first pays for an arithmetic library**. For our renderer this would
+mean: prove `x+0=x`, associativity, then generalise `frame8` to `4^d`. The three
+laws that exist now do not require that payment — they rest on the structure of
+the list and the tree.
 
-## 3. Что это значит
+## 3. What this means
 
-| | доказуемо | недоказуемо |
+| | provable | unprovable |
 |---|---|---|
-| форма кадра, число лучей | да | |
-| полнота параллельного сплита | да | |
-| число вагонов | да | |
-| цвета, освещение, туман | | F32 непрозрачен |
-| положение камеры и путь | | F32 непрозрачен |
-| `4^d` в общем виде | | нет алгебры Nat в Base |
-| детерминизм между потоками | | следствие из F32 |
+| frame shape, number of rays | yes | |
+| completeness of the parallel split | yes | |
+| number of carriages | yes | |
+| colours, lighting, fog | | F32 is opaque |
+| camera position and track | | F32 is opaque |
+| `4^d` in the general case | | no algebra of Nat in Base |
+| determinism across threads | | a consequence of F32 |
 
-Последняя строка — отдельная ирония. Детерминизм рендера **измерен**
-(см. `docs/benchmarks.md`: 108 запусков, один и тот же контрольный код при
-любом числе потоков), но **не доказан**: чтобы его сформулировать, нужны
-уравнения на F32-значениях, а их у чекера нет.
+The last row is a separate irony. The renderer's determinism is **measured** (see
+`docs/benchmarks.md`: 108 runs, the same checksum at any thread count), but **not
+proved**: to state it you would need equations over F32 values, and the checker
+does not have them.
 
-Получается честная картина для этого проекта: ворота законов ловят ошибки
-**структуры** — потерянную ветку квадродерева, лишний или недостающий вагон,
-сломанную рекурсию, — и не ловят ошибки в **числах**. Это гораздо больше, чем
-ничего, но заметно меньше, чем обещает слово «proof» на обложке.
+The result is an honest picture for this project: the laws gate catches errors of
+**structure** — a lost quadtree branch, an extra or missing carriage, broken
+recursion — and does not catch errors in **numbers**. That is far more than
+nothing, but noticeably less than the word "proof" on the cover promises.
