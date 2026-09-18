@@ -416,8 +416,10 @@ def Pine.cell.if(far: Bool, +ox: F32, +oz: F32) -> Pine:
       +h0 = Hash.f(F32.to_u32((ox + 4096.0 : F32)),
         F32.to_u32((oz + 4096.0 : F32)))
       +scale = (0.85 + 1.9 * h0 : F32)
-      Pine{ox, oz, (2.1 * scale : F32), (8.6 * scale : F32),
-        (Track.y(oz) - 0.9 : F32)}
+      # The demo's crown is 0.5*4.2*scale across and 0.8*7.8*scale tall,
+      # standing 0.8*scale above the terrain on a trunk.
+      Pine{ox, oz, (2.1 * scale : F32), (6.3 * scale : F32),
+        (Track.y(oz) - 0.9 + 0.8 * scale : F32)}
     case False{}:
       Pine{1000000000.0, 1000000000.0, 0.0, 1.0, 1000000000.0}
 
