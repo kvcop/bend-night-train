@@ -42,16 +42,21 @@ tries to touch `~/.bend`. Always use the wrapper:
 
 `tools/bend` sets `BEND_HOME` inside the workspace and disables telemetry.
 
-The host has an **RTX 4090 Laptop (16 GB, driver 580.178.04, CUDA 13.0)** --
-but the default `workspace-write` sandbox does not pass `/dev/nvidia*` into the
-shell, so `nvidia-smi` fails there and `!` runs on the CPU.  Under wider sandbox
-access the device is visible.  Before ever claiming there is no GPU, check
-`lspci` and `/proc/driver/nvidia/gpus/`: their absence, not `nvidia-smi`, is
-what would mean it.
+The host has an **RTX 4090 Laptop (16 GB, driver 580.178.04, CUDA 13.0)** and
+the device is reachable from the shell: `nvidia-smi` answers and `/dev/nvidia*`
+exists.  The CUDA toolkit is the distro package -- `nvcc` 12.0 at
+`/usr/bin/nvcc`, `cuda.h`/`nvrtc.h` in `/usr/include`, `libcuda`/`libnvrtc` in
+`/usr/lib/x86_64-linux-gnu` -- and there is **no** `/usr/local/cuda`, which is
+where Bend looks by default.  `tools/bend` therefore sets `CUDA_HOME=/usr` when
+that path is missing, so a `!` program builds its device program beside the
+binary as `<binary>.gpu` and `--gpu` runs the quadtree on the device.
 
-Toolchain: clang 18 (the guide asks for 19+ when `!` is present; 18 still
-builds), and `nvcc` 12.0 at `/usr/bin/nvcc` -- note there is **no**
-`/usr/local/cuda`, which is where the guide says Linux GPU builds look.
+Two failure modes are easy to confuse.  `bend: --gpu on, but this binary
+found no GPU device` means the *binary* was built without CUDA (the `.gpu`
+file is absent), not that the machine lacks a GPU.  And the GPU lane needs
+**clang 19+**: Bend picks `clang-19` itself when it is installed, but clang 18
+silently produces a CPU-only build.  Verify the device with `lspci`,
+`/proc/driver/nvidia/gpus/` and `nvidia-smi` before claiming anything about it.
 
 ## Never publish
 
@@ -69,14 +74,19 @@ conversation.  Not because a past summary said the toolchain should be probed.
 
 ## Layout
 
-- `src/` — the Bend implementation (`scene.bend`, `render.bend`, `frames.bend`).
+- `src/` — the Bend implementation: `scene.bend` (the world, tracing, shading),
+  `color.bend` (F32 triple to `U32`), `shape.bend` (the pixel-free frame
+  skeleton the laws are stated on), `main.bend` (the headless driver).
 - `LAWS.bend`, `PROOF.bend` — the laws gate at the repo root, by convention.
 - `bench/` — benchmark drivers and their raw output.
-- `docs/` — research output: `journal.md` (chronological), `language-notes.md`
-  (verified language behaviour), `reference-demo-spec.md` (what the original
-  WebGL demo does), `benchmarks.md` (numbers), `laws.md` (what is provable).
+- `docs/` — research output in **English** (the primary copy): `journal.md`
+  (chronological), `language-notes.md` (verified language behaviour),
+  `reference-demo-spec.md` (what the original WebGL demo does), `benchmarks.md`
+  (numbers), `laws.md` (what is provable).  The Russian originals live under
+  `docs/ru/`; `README.md` is English with `README.ru.md` beside it.
 - `reference/` — the original HTML demo, kept verbatim for provenance.
-- `tools/` — the `bend` wrapper and small scripts.
+- `tools/` — the `bend` wrapper, the reference renderer/comparison tools, and
+  small scripts.
 
 ## Writing
 

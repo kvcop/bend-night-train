@@ -3,7 +3,7 @@
 BEND := ./tools/bend
 BIN := out/night-train
 
-.PHONY: all proof check build run frame bench clean
+.PHONY: all proof check build run frame gpu bench clean
 
 all: proof build
 
@@ -27,6 +27,14 @@ run: build
 frame: build
 	NT_DEPTH=9 NT_PPM=1 $(BIN) --threads 16
 	python3 tools/ppm2png.py out/frame.ppm out/frame.png
+
+# The `!` render on the GPU.  A `!` program builds its device program next to
+# the binary as out/night-train.gpu (see tools/bend for the CUDA discovery),
+# and `--gpu` hands the quadtree to the device.  Same checksum as the CPU run
+# at any thread count -- the render is pure.  See docs/benchmarks.md.
+gpu: build
+	NT_DEPTH=9 NT_PPM=1 $(BIN) --gpu 4GB --threads 8
+	python3 tools/ppm2png.py out/frame.ppm out/frame-gpu.png
 
 bench: build
 	./bench/bench.sh $(BIN) bench/results.csv
