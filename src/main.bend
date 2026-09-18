@@ -212,12 +212,18 @@ def Main.ground.chunks(+s: F32) -> List<&2, List<&2, Geo.WTri>>:
 # gets the train at its real speed and a driver that feeds a fixed step gets a
 # clip that plays back at that step.  tools/live.sh does the first and
 # tools/clip.sh the second.
-def View.frame.at(+ms: U32, +d: Nat, +s0: F32, +head: Bool) -> Raster.Frame:
+# The camera is the demo's own ride, but the same pinning the still comparison
+# uses (NT_YAW/NT_PITCH/NT_MOTION) applies here too: with the head pinned the
+# clip is comparable frame for frame with the reference's.
+def View.frame.at(+ms: U32, +d: Nat, +s0: F32, +head: Bool, +mo: Bool,
+  +yaw0: Maybe<&2, F32>, +pitch0: Maybe<&2, F32>) -> Raster.Frame:
+  # a def body, unlike a do block, wants its bindings without a type annotation
   +t = (U32.to_f32(ms) * 0.001 : F32)
   +s = (s0 + 24.5 * t : F32)
-  Raster.Raster.frame.chunks(d, s, Ride.Ride.side(t, True{}),
-    Ride.Ride.hgt(t, True{}), Ride.Ride.yaw(s, t, True{}),
-    Ride.Ride.pitch(t, True{}), Main.ground.chunks(s), Main.tris.chunks(s),
+  +yaw = Main.f32.or.else(yaw0, Ride.Ride.yaw(s, t, mo))
+  +pitch = Main.f32.or.else(pitch0, Ride.Ride.pitch(t, mo))
+  Raster.Raster.frame.chunks(d, s, Ride.Ride.side(t, mo),
+    Ride.Ride.hgt(t, mo), yaw, pitch, Main.ground.chunks(s), Main.tris.chunks(s),
     Ride.Ride.lights(s), [], t, head)
 
 
@@ -233,18 +239,18 @@ def View.rows(+i: Nat, +d: Nat, +w: U32, +fr: Raster.Frame) -> IO(Unit):
         View.rows(k, d, w, fr)
 
 
-def View.go(+i: Nat, +ms: U32, +step: U32, +d: Nat, +s0: F32, +head: Bool)
-  -> IO(Unit):
+def View.go(+i: Nat, +ms: U32, +step: U32, +d: Nat, +s0: F32, +head: Bool,
+  +mo: Bool, +yaw0: Maybe<&2, F32>, +pitch0: Maybe<&2, F32>) -> IO(Unit):
   match i:
     case 0n:
       IO.pure(Unit, Unit{})
     case 1n+k:
       do IO<Unit>:
         +w : U32 = U32.shln(1, d)
-        +fr : Raster.Frame = View.frame.at(ms, d, s0, head)
+        +fr : Raster.Frame = View.frame.at(ms, d, s0, head, mo, yaw0, pitch0)
         IO.write("P3\n" ++ U32.show(w) ++ " " ++ U32.show(w) ++ "\n255\n")
         View.rows(U32.to_nat(w), d, w, fr)
-        View.go(k, U32.add(ms, step), step, d, s0, head)
+        View.go(k, U32.add(ms, step), step, d, s0, head, mo, yaw0, pitch0)
 
 
 def View.run() -> IO(Unit):
@@ -255,8 +261,11 @@ def View.run() -> IO(Unit):
     step : U32 <- Main.env.u32("NT_STEP", 33)
     s0 : F32 <- Main.env.f32("NT_S", 110.0)
     head : U32 <- Main.env.u32("NT_HEAD", 1)
+    motion : U32 <- Main.env.u32("NT_MOTION", 1)
+    yaw0 : Maybe<&2, F32> <- Main.env.f32.opt("NT_YAW")
+    pitch0 : Maybe<&2, F32> <- Main.env.f32.opt("NT_PITCH")
     View.go(U32.to_nat(frames), first, step, U32.to_nat(depth), s0,
-      U32.is_eq(head, 1))
+      U32.is_eq(head, 1), U32.is_eq(motion, 1), yaw0, pitch0)
 
 
 # ---- driver ----------------------------------------------------------
