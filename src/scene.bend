@@ -532,12 +532,76 @@ def S.slope() -> F32: 0.999
 
 # ---- sky -------------------------------------------------------------
 
-def Star.pick(lit: Bool, +h: F32) -> F32:
-  match lit:
-    case True{}:
-      (0.25 + 0.75 * h : F32)
-    case False{}:
-      0.0
+# 3D value noise (the demo's hash31 / vnoise3 / fbm), used by the sky.
+def S.hash31(+px: F32, +py: F32, +pz: F32) -> F32:
+  +ax = S.fract((px * 0.3183 + 0.71 : F32))
+  +ay = S.fract((py * 0.3183 + 0.113 : F32))
+  +az = S.fract((pz * 0.3183 + 0.419 : F32))
+  +bx = (ax * 17.0 : F32)
+  +by = (ay * 17.0 : F32)
+  +bz = (az * 17.0 : F32)
+  S.fract((bx * by * bz * (bx + by + bz) : F32))
+
+
+def S.vnoise3(+px: F32, +py: F32, +pz: F32) -> F32:
+  +ix = F32.floor(px)
+  +iy = F32.floor(py)
+  +iz = F32.floor(pz)
+  +fx = (px - ix : F32)
+  +fy = (py - iy : F32)
+  +fz = (pz - iz : F32)
+  +ux = (fx * fx * (3.0 - 2.0 * fx) : F32)
+  +uy = (fy * fy * (3.0 - 2.0 * fy) : F32)
+  +uz = (fz * fz * (3.0 - 2.0 * fz) : F32)
+  +x0 = (ix + 1.0 : F32)
+  +y0 = (iy + 1.0 : F32)
+  +z0 = (iz + 1.0 : F32)
+  +c00 = S.mix(S.hash31(ix, iy, iz), S.hash31(x0, iy, iz), ux)
+  +c10 = S.mix(S.hash31(ix, y0, iz), S.hash31(x0, y0, iz), ux)
+  +c01 = S.mix(S.hash31(ix, iy, z0), S.hash31(x0, iy, z0), ux)
+  +c11 = S.mix(S.hash31(ix, y0, z0), S.hash31(x0, y0, z0), ux)
+  S.mix(S.mix(c00, c10, uy), S.mix(c01, c11, uy), uz)
+
+
+def S.fbm3(+px: F32, +py: F32, +pz: F32) -> F32:
+  +v1 = S.vnoise3(px, py, pz)
+  +x2 = (px * 2.07 : F32)
+  +y2 = (py * 2.07 : F32)
+  +z2 = (pz * 2.07 : F32)
+  +v2 = S.vnoise3(x2, y2, z2)
+  +x3 = (x2 * 2.07 : F32)
+  +y3 = (y2 * 2.07 : F32)
+  +z3 = (z2 * 2.07 : F32)
+  +v3 = S.vnoise3(x3, y3, z3)
+  +x4 = (x3 * 2.07 : F32)
+  +y4 = (y3 * 2.07 : F32)
+  +z4 = (z3 * 2.07 : F32)
+  +v4 = S.vnoise3(x4, y4, z4)
+  (0.62 * v1 + 0.3224 * v2 + 0.167648 * v3 + 0.08717696 * v4 : F32)
+
+
+# The demo's 1100 stars are a separate additive sprite pass.  Here they are
+# one cell lookup on the ray direction: round, dim, fading into the haze.
+def S.star(+dx: F32, +dy: F32, +dz: F32) -> V3:
+  +nx = (dx * 140.0 : F32)
+  +ny = (dy * 140.0 : F32)
+  +nz = (dz * 140.0 : F32)
+  +ix = F32.floor(nx)
+  +iy = F32.floor(ny)
+  +iz = F32.floor(nz)
+  +h = S.hash31(ix, iy, iz)
+  +o1 = S.hash31((ix + 7.13 : F32), (iy + 3.31 : F32), (iz + 11.70 : F32))
+  +o2 = S.hash31((ix + 1.71 : F32), (iy + 9.37 : F32), (iz + 5.19 : F32))
+  +o3 = S.hash31((ix + 4.23 : F32), (iy + 6.11 : F32), (iz + 2.87 : F32))
+  +fx = (nx - ix - o1 : F32)
+  +fy = (ny - iy - o2 : F32)
+  +fz = (nz - iz - o3 : F32)
+  +d = F32.sqrt((fx * fx + fy * fy + fz * fz : F32))
+  +core = F32.pow(F32.max(0.0, (1.0 - d * 4.0 : F32)), 3.5)
+  +w = (S.one.if(F32.is_gt(h, 0.9925)) * core * S.smooth((0.0 - 0.04 : F32), 0.16, dy) : F32)
+  +warm = S.hash31((ix + 0.5 : F32), (iy + 0.5 : F32), (iz + 0.5 : F32))
+  V3{(w * S.mix(0.78, 1.00, warm) : F32), (w * S.mix(0.85, 0.90, warm) : F32),
+    (w * S.mix(1.00, 0.76, warm) : F32)}
 
 
 
@@ -1049,22 +1113,67 @@ def shade(+px: F32, +py: F32, +pz: F32, +dist: F32, cam: Cam,
 # are added last, because in the demo they are a separate additive pass.
 def sky(dir: V3) -> U32:
   V3{+dx, +dy, +dz} = dir
-  +t = F32.clamp((dy * 1.6 + 0.25 : F32), 0.0, 1.0)
-  +moon = F32.max(0.0,
-    (dx * S.moon_x() + dy * S.moon_y() + dz * S.moon_z() : F32))
-  +halo = F32.pow(moon, 180.0)
-  +disc = F32.pow(moon, 9000.0)
-  +sh = Hash.f(
-    U32.add(F32.to_u32((F32.floor((dx * 220.0 : F32)) : F32)), 8192),
-    U32.add(F32.to_u32((F32.floor((dy * 220.0 : F32)) : F32)), 8192))
-  +star = Star.pick(F32.is_gt(sh, 0.9965), sh)
-  Color.pack((0.020 + 0.055 * t + 0.85 * halo + 6.0 * disc + star * 1.4 : F32),
-    (0.028 + 0.070 * t + 0.88 * halo + 6.0 * disc + star * 1.3 : F32),
-    (0.055 + 0.150 * t + 0.98 * halo + 6.0 * disc + star * 1.1 : F32))
+  +h = F32.clamp(dy, (0.0 - 1.0 : F32), 1.0)
+  +up = S.smooth(0.18, 0.85, h)
+  +dn = S.smooth((0.0 - 0.05 : F32), 0.18, h)
+  +hi = S.one.if(F32.is_gt(h, 0.18))
+  +br = S.mix(S.mix(0.150, 0.045, dn), S.mix(0.045, 0.014, up), hi)
+  +bg = S.mix(S.mix(0.135, 0.061, dn), S.mix(0.061, 0.020, up), hi)
+  +bb = S.mix(S.mix(0.190, 0.126, dn), S.mix(0.126, 0.052, up), hi)
+  # Milky Way: axis normalize(0.62, 0.42, -0.66), fbm3 at 7/unit
+  +axis = (dx * 0.6211 + dy * 0.4207 - dz * 0.6612 : F32)
+  +mcore = S.smooth(0.80, 1.0, (1.0 - F32.abs(axis) : F32))
+  +cloud = S.fbm3((dx * 7.0 : F32), (dy * 7.0 : F32), (dz * 7.0 : F32))
+  +milky = (mcore * (0.25 + cloud * 0.95) * S.smooth((0.0 - 0.02 : F32), 0.22, h) : F32)
+  +mr = (br + 0.100 * milky : F32)
+  +mg = (bg + 0.108 * milky : F32)
+  +mb = (bb + 0.150 * milky : F32)
+  # moon: narrow disc, wide halo, then the noisy limb
+  +md = (dx * S.moon_x() + dy * S.moon_y() + dz * S.moon_z() : F32)
+  +mdp = F32.max(0.0, md)
+  +disc = (F32.pow(mdp, 420.0) * 0.32 : F32)
+  +halo = (F32.pow(mdp, 14.0) * 0.30 : F32)
+  +maria = S.vnoise3((dx * 320.0 : F32), (dy * 320.0 : F32), (dz * 320.0 : F32))
+  +e = (S.one.if(F32.is_gt(md, 0.99965)) * S.smooth(0.99965, 0.99985, md) : F32)
+  +mr2 = S.mix((mr + 0.55 * disc + 0.24 * halo : F32),
+    (0.90 * (0.80 + maria * 0.20) : F32), e)
+  +mg2 = S.mix((mg + 0.62 * disc + 0.29 * halo : F32),
+    (0.93 * (0.80 + maria * 0.20) : F32), e)
+  +mb2 = S.mix((mb + 0.85 * disc + 0.45 * halo : F32),
+    (0.88 * (0.80 + maria * 0.20) : F32), e)
+  # low cloud deck near the horizon
+  +cp = S.vnoise3((dx * 5.0 : F32), (dy * 5.0 : F32), (dz * 5.0 : F32))
+  +cp2 = S.vnoise3((dx * 13.5 : F32), (dy * 13.5 : F32), (dz * 13.5 : F32))
+  +clouds = S.smooth(0.50, 0.78, (cp * 0.7 + cp2 * 0.3 : F32))
+  +cw = (clouds * 0.42 * S.smooth(0.02, 0.23, h) : F32)
+  +cr2 = S.mix(mr2, 0.105, cw)
+  +cg2 = S.mix(mg2, 0.135, cw)
+  +cb2 = S.mix(mb2, 0.190, cw)
+  # weld into the fog, then the two distant ridge lines
+  +fh = (1.0 - S.smooth((0.0 - 0.06 : F32), 0.16, h) : F32)
+  +fr2 = S.mix(cr2, S.fog_r(), fh)
+  +fg2 = S.mix(cg2, S.fog_g(), fh)
+  +fb2 = S.mix(cb2, S.fog_b(), fh)
+  +az = F32.atan2(dx, dz)
+  +ridge = (0.025 + F32.sin(az * 7.0) * 0.015 + F32.sin(az * 17.0 + 2.0) * 0.009
+    : F32)
+  +rw = (1.0 - S.smooth(ridge, (ridge + 0.004 : F32), h) : F32)
+  +rr2 = S.mix(fr2, 0.060, rw)
+  +rg2 = S.mix(fg2, 0.087, rw)
+  +rb2 = S.mix(fb2, 0.128, rw)
+  +ridge2 = (0.008 + F32.sin(az * 11.0 + 1.0) * 0.011 : F32)
+  +nw = (1.0 - S.smooth(ridge2, (ridge2 + 0.003 : F32), h) : F32)
+  +sr = S.mix(rr2, S.fog_r(), nw)
+  +sg = S.mix(rg2, S.fog_g(), nw)
+  +sb = S.mix(rb2, S.fog_b(), nw)
+  +st = S.star(dx, dy, dz)
+  Color.pack((sr + V3.px(st) : F32), (sg + V3.py(st) : F32),
+    (sb + V3.pz(st) : F32))
 
 
 
 
+# ---- one pixel -------------------------------------------------------
 
 def pixel.hit(miss: Bool, +ex: F32, +ey: F32, +ez: F32, +dx: F32, +dy: F32,
   +dz: F32, +t: F32, dir: V3, cam: Cam, cars: List<&2, Car>, head: Head,
