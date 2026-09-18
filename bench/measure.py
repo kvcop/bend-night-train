@@ -9,6 +9,12 @@ second is what exposes a spinning scheduler.
 
   python3 bench/measure.py --reps 5 -- ./out/night-train --threads 32
   python3 bench/measure.py --env NT_DEPTH=8 --reps 5 -- ./out/night-train
+  python3 bench/measure.py --backend gpu --env NT_DEPTH=9 --reps 5 \
+      -- ./out/night-train --threads 8
+
+--backend gpu inserts `--gpu 4GB` (or --gpu-mem N) after the binary, so the
+same single cell can be measured on the device; it also labels the result.
+`--gpu` only does anything when the source uses `!`.
 """
 
 import argparse
@@ -34,6 +40,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--reps", type=int, default=5)
     ap.add_argument("--env", action="append", default=[])
+    ap.add_argument("--backend", choices=("cpu", "gpu"), default="cpu")
+    ap.add_argument("--gpu-mem", default="4GB")
     ap.add_argument("cmd", nargs=argparse.REMAINDER)
     args = ap.parse_args()
 
@@ -41,6 +49,10 @@ def main():
     if not cmd:
         print(__doc__)
         return 2
+
+    # The binary stays first; Bend flags go after it.
+    if args.backend == "gpu":
+        cmd = [cmd[0], "--gpu", args.gpu_mem, *cmd[1:]]
 
     env = dict(os.environ)
     for kv in args.env:
@@ -59,8 +71,8 @@ def main():
 
     wall = statistics.median(walls)
     cpu = statistics.median(cpus)
-    label = " ".join(args.env)
-    print(f"{label + ' ' if label else ''}{' '.join(cmd)}")
+    label = " ".join([f"backend={args.backend}", *args.env])
+    print(f"{label} {' '.join(cmd)}")
     print(f"  wall {wall * 1000:9.1f} ms   cpu {cpu * 1000:9.1f} ms   "
           f"cpu/wall {cpu / wall:5.2f}x   runs {args.reps}")
     if len(outs) != 1:
