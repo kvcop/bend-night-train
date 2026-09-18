@@ -217,6 +217,8 @@ structure of the list and the tree, and are decided by evaluation.
 
 ## 3. What this means
 
+![The boundary: structure on the left is provable, numbers on the right are not, because every F32 operation is a law without a body](../assets/readme/laws-boundary.svg)
+
 | | provable | unprovable |
 |---|---|---|
 | frame shape, number of tiles and pixels | yes | |

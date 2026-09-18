@@ -57,6 +57,11 @@ python3 bench/measure.py --reps 5 --env NT_DEPTH=10 --env NT_PPM=0 -- ./out/nigh
 Speed-up at 32 threads: depth 8 = 2.3×, depth 9 = 3.5×, depth 10 = 5.4×.
 Wall time keeps falling all the way to 32 threads; there is no ceiling.
 
+![Wall time against thread count for depths 8, 9 and 10; depth 10 falls from 1.66 s to 0.31 s](../assets/readme/bench-scaling.svg)
+
+*The same numbers as a picture. The digest is one value per depth at every thread count,
+so the shape of the curves is scheduling, not a change in the picture.*
+
 ## 2. Where the CPU goes
 
 Total child CPU grows far more slowly than the speed-up, not faster:

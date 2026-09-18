@@ -164,6 +164,8 @@ Literals are not converted implicitly: `(1n + 1 : U32)` →
 
 ## 2. Rules and pitfalls (all verified)
 
+![Four rules: declaration order is part of the program, mutual recursion is forbidden, match is a statement, only a parameter can be destructured](../assets/readme/language-rules.svg)
+
 ### 2.1 `match` is not a term: it does not exist in a `do` block
 
 ```python
