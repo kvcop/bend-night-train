@@ -65,15 +65,16 @@ def Cam.build(+ex: F32, +ey: F32, +ez: F32, +fx: F32, +fy: F32, +fz: F32)
   +nx = (fx * fl : F32)
   +ny = (fy * fl : F32)
   +nz = (fz * fl : F32)
+  # Camera basis, matching the demo's M4.lookAt: right = normalize(cross(look,
+  # up)) with up = world +Y, and the screen-up then follows from right x look.
+  # Getting this sign wrong mirrors the whole frame left-to-right.
   +rl = (1.0 / F32.sqrt((fz * fz + fx * fx : F32)) : F32)
-  +rx = (fz * rl : F32)
-  +rz = ((0.0 - fx : F32) * rl : F32)
-  +vx = (ny * rz : F32)
-  +vy = (nz * rx - nx * rz : F32)
-  +vz = (0.0 - ny * rx : F32)
-  +vl = (1.0 / F32.sqrt((vx * vx + vy * vy + vz * vz : F32)) : F32)
-  Cam{ex, ey, ez, nx, ny, nz, rx, 0.0, rz, (vx * vl : F32), (vy * vl : F32),
-    (vz * vl : F32), 0.0, 0.0, 0.0, 0.0}
+  +rx = ((0.0 - fz : F32) * rl : F32)
+  +rz = (fx * rl : F32)
+  +vx = ((0.0 - rz : F32) * ny : F32)
+  +vy = (rz * nx - rx * nz : F32)
+  +vz = (rx * ny : F32)
+  Cam{ex, ey, ez, nx, ny, nz, rx, 0.0, rz, vx, vy, vz, 0.0, 0.0, 0.0, 0.0}
 
 
 
