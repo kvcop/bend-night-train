@@ -1,3 +1,5 @@
+# Expected to be rejected: a field cannot be projected off a parameter with dot
+# syntax in Bend 2.  Kept for the error message quoted in docs/language-notes.md.
 import Base
 
 type P is Data:

@@ -1,3 +1,5 @@
+# Expected to be rejected: only three of the five fields are named in the
+# pattern.
 import Base
 
 type V is Data:

@@ -1,3 +1,5 @@
+# Expected to be rejected: a constructor argument with no annotation and an
+# unbound type variable -- "an annotated term (cannot infer)".
 import Base
 
 type P is Data:
