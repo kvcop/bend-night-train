@@ -319,12 +319,97 @@ def Sh.v(f: Rt.Frag, cam: Rt.VCam, lts: Lights, +head_on: Bool) -> RGB:
 
 
 # ---- the star sphere -------------------------------------------------
-# 1100 directions from the demo's own LCG (seed 7, s = (s*1103515245 + 12345)
-# & 0x7fffffff), generated the same call order -- u, v, then the brightness.
-# U32.mul wraps, so the low 32 bits are exact and the mask leaves the same
-# 31-bit value JavaScript produces.
+# 1100 directions from the demo's own generator, seeded 7, in the same call
+# order -- u, v, then the brightness.
+#
+# That generator is not the one the dust uses.  The demo writes it in plain
+# JavaScript numbers, `seed = (seed * 1103515245 + 12345) & 0x7fffffff`, so the
+# product is first rounded to what a double can hold -- 53 significant bits --
+# and only then masked.  A wrapping 32-bit multiply keeps bits the demo throws
+# away, and from the second call on every value differs, which would put all
+# 1100 stars somewhere else.  So the rounding is part of the picture and is
+# reproduced here: the product is 62 bits wide, and the three defs below are
+# what it costs to round it the way the double does.
+type Wide is Data:
+  Wide{hi: U32, lo: U32}
+
+
+# 1103515245 = 16838 * 2^16 + 20077, and the seed is 31 bits, so the product
+# splits into four 30-bit pieces: s1*m1 * 2^32 + (s1*m0 + s0*m1) * 2^16 + s0*m0.
+def Stars.wide(+s: U32) -> Wide:
+  +s1 = U32.shrn(s, 16n)
+  +s0 = U32.and(s, 65535)
+  +a = U32.mul(s1, 16838)
+  +b = U32.mul(s1, 20077)
+  +c = U32.mul(s0, 16838)
+  +d = U32.mul(s0, 20077)
+  +mid = U32.add(b, c)
+  +u = U32.shln(U32.and(mid, 65535), 16n)
+  +lo = U32.add(u, d)
+  +carry = Bool.pick(U32, U32.is_lt(lo, u), 1, 0)
+  Wide{U32.add(U32.add(a, U32.shrn(mid, 16n)), carry), lo}
+
+
+# How many bits the high word holds: the first k whose 2^(k-1) it reaches,
+# scanning down from 30.  Bool.pick takes both arms, so the scan always runs to
+# the bottom and the outermost match is the one that survives.
+def Stars.bits.go(+hi: U32, +k: Nat) -> Nat:
+  match k:
+    case 0n:
+      0n
+    case 1n+j:
+      Bool.pick(Nat, U32.is_ge(hi, U32.shln(1, j)), k, Stars.bits.go(hi, j))
+
+
+def Stars.bits(+hi: U32) -> Nat:
+  Stars.bits.go(hi, 30n)
+
+
+# The double keeps the top 53 bits, so what it holds is a multiple of 2^e, e
+# counted down from the top of the 62-bit product.  The seed is 31 bits, so e
+# never passes 9.
+def Stars.shift(+hi: U32) -> Nat:
+  +b = Stars.bits(hi)
+  Bool.pick(Nat, Nat.is_ge(b, 22n), Nat.sub(b, 21n), 0n)
+
+
+# Round up when the remainder is past half, or exactly at half with an odd
+# quotient: IEEE's round-half-to-even.
+def Stars.up(+rem: U32, +half: U32, +odd: U32) -> U32:
+  Bool.pick(U32,
+    Bool.or(U32.is_gt(rem, half),
+      Bool.and(U32.is_eq(rem, half), U32.is_eq(odd, 1))), 1, 0)
+
+
+# One call: round the product to a multiple of 2^e, add 12345 and round that to
+# the same multiple -- the double's own two roundings -- then keep the low 31
+# bits.  Only those bits are wanted and e never passes 9, so the product's low
+# word carries the whole answer.
+def Stars.rounded(+lo: U32, +e: Nat) -> U32:
+  +mask = U32.sub(U32.shln(1, Nat.sub(31n, e)), 1)
+  +ones = U32.sub(U32.shln(1, e), 1)
+  +half = U32.shln(1, Nat.sub(e, 1n))
+  +q = U32.shrn(lo, e)
+  +c1 = Stars.up(U32.and(lo, ones), half, U32.and(q, 1))
+  +dd = U32.shrn(12345, e)
+  +c2 = Stars.up(U32.and(12345, ones), half,
+    U32.and(U32.add(q, U32.add(c1, dd)), 1))
+  U32.and(U32.shln(U32.and(U32.add(q, U32.add(c1, U32.add(dd, c2))), mask), e),
+    2147483647)
+
+
+# The product is taken apart in a def of its own: a destructuring let can only
+# read a parameter, and e == 0 means the double held the product exactly, so the
+# whole call is the product plus the increment.
+def Stars.next.w(w: Wide) -> U32:
+  Wide{hi, +lo} = w
+  +e = Stars.shift(hi)
+  Bool.pick(U32, U32.is_eq(U32.from_nat(e), 0),
+    U32.and(U32.add(lo, 12345), 2147483647), Stars.rounded(lo, e))
+
+
 def Stars.next(+s: U32) -> U32:
-  U32.and(U32.add(U32.mul(s, 1103515245), 12345), 2147483647)
+  Stars.next.w(Stars.wide(s))
 
 
 def Stars.rnd(+s: U32) -> F32:
